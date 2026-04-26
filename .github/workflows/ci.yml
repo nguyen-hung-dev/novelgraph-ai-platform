@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  repository-checks:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check required docs
+        shell: bash
+        run: |
+          test -f README.md
+          test -f README.vi.md
+          test -f AGENTS.md
+          test -f CONTRIBUTING.md
+          test -f SECURITY.md
+          test -f ROADMAP.md
+          test -f CHANGELOG.md
+          test -f docs/README.md
+          test -f docs/implementation-plan.md
+          test -f docs/product-requirements.md
+          test -f docs/development.md
+          test -f docs/api-contract.md
+          test -f docs/data-model.md
+          test -f docs/deployment.md
+          test -f docs/testing-strategy.md
+          test -f docs/security-byok.md
+          test -f docs/adr/0001-hybrid-web-desktop-stack.md
+
+      - name: Check no obvious committed secrets
+        shell: bash
+        run: |
+          if grep -RInE "(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)" . \
+            --exclude-dir=.git \
+            --exclude=ci.yml; then
+            echo "Potential secret found"
+            exit 1
+          fi
