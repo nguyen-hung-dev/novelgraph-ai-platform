@@ -40,6 +40,7 @@ Goal: create the first runnable Rust backend with storage foundations.
 ## Validation
 
 - Backend starts locally.
-- `/health` returns mode and version.
+- `/health` returns mode, app version, API version, and storage schema version.
 - Migrations run against SQLite.
 - Schema design document is updated.
+- `CHANGELOG.md` and version metadata are updated for code, API, and schema changes.

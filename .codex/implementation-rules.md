@@ -9,6 +9,19 @@
 - Use ASCII for code, identifiers, commands, slugs, file paths, and protocol examples where practical.
 - Vietnamese prose must be written with proper Vietnamese diacritics. Do not write unaccented Vietnamese in documentation or user-facing text.
 
+## Changelog and Versioning
+
+- Every code change must update `CHANGELOG.md`.
+- Documentation-only changes may skip a version bump, but should still update `CHANGELOG.md` when they change project behavior, setup, security posture, or release notes.
+- Public API changes, storage schema changes, migrations, breaking behavior, release behavior, and user-visible behavior changes must also review version metadata.
+- Keep these version locations aligned when a version changes:
+  - `VERSION`
+  - workspace package `version` in `Cargo.toml`
+  - `crates/core/src/version.rs`
+  - `README.md` and `README.vi.md` current version text
+- `/health` must expose the app version and relevant API/storage schema version metadata.
+- Prefer adding changes to `Unreleased` during active development. Move them into a concrete version section only when preparing a release or explicit version milestone.
+
 ## Backend
 
 - Rust backend should use explicit domain modules rather than one large service object.

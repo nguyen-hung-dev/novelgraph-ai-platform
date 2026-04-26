@@ -7,7 +7,7 @@ use axum::{
 };
 use novelgraph_core::{
     build_import_preview, AppConfig, CreateProjectInput, CreateTranslationJobInput,
-    NovelImportInput,
+    NovelImportInput, API_VERSION, APP_VERSION, STORAGE_SCHEMA_VERSION,
 };
 use novelgraph_storage::{SqliteStore, StorageError};
 use serde::Serialize;
@@ -59,13 +59,17 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub app_mode: &'static str,
     pub version: &'static str,
+    pub api_version: &'static str,
+    pub storage_schema_version: &'static str,
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         app_mode: state.config.mode.as_str(),
-        version: env!("CARGO_PKG_VERSION"),
+        version: APP_VERSION,
+        api_version: API_VERSION,
+        storage_schema_version: STORAGE_SCHEMA_VERSION,
     })
 }
 

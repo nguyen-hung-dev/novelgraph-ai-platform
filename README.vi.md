@@ -2,6 +2,8 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
+Phiên bản foundation hiện tại: `0.1.1`.
+
 ## Giấy Phép
 
 Repo này được publish source-available theo PolyForm Noncommercial License 1.0.0. Bạn được dùng, đọc, chỉnh sửa và phân phối lại cho mục đích phi thương mại theo điều khoản giấy phép. Mọi mục đích thương mại đều bị cấm nếu chưa có giấy phép thương mại riêng từ chủ sở hữu bản quyền.

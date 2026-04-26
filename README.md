@@ -4,6 +4,8 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
+Current foundation version: `0.1.1`.
+
 ## License
 
 This repository is source-available under the PolyForm Noncommercial License 1.0.0. Noncommercial use, study, modification, and redistribution are allowed under the license terms. Commercial use is prohibited unless you obtain a separate commercial license from the copyright holder.

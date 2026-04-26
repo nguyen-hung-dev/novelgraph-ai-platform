@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "thiserror",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "novelgraph-core",
  "serde",

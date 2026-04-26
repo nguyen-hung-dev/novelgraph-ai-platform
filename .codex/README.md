@@ -7,8 +7,9 @@ Read order:
 1. `AGENTS.md`
 2. `.codex/project-context.md`
 3. `.codex/implementation-rules.md`
-4. Relevant phase task in `.codex/tasks/`
-5. Relevant prompt contract or checklist
+4. `.codex/versioning.md`
+5. Relevant phase task in `.codex/tasks/`
+6. Relevant prompt contract or checklist
 
 Keep this directory free of secrets, API keys, private model credentials, user uploads, and generated databases.
 
@@ -20,13 +21,14 @@ Build a hybrid web/desktop AI novel analysis platform:
 - Desktop: Tauri app with local storage and local AI.
 - Shared UI: dense desktop-style workspace.
 - Core pipeline: evidence-first extraction and reviewable projections.
+- Change hygiene: every code change must account for changelog and version metadata.
 
 ## Current Priority
 
-Phase 0 foundation:
+Phase 1 foundation:
 
 - Establish repo structure.
 - Define contracts and ADRs.
-- Scaffold Rust backend and SvelteKit UI after stack decisions are locked.
+- Continue Rust backend foundation.
+- Keep `CHANGELOG.md`, `VERSION`, workspace `Cargo.toml`, and `crates/core/src/version.rs` aligned when behavior changes.
 - Do not start complex graph/map/timeline rendering yet.
-

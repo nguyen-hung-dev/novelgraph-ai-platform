@@ -42,6 +42,18 @@ POST   /api/projects/{project_id}/translation/jobs
 GET    /api/projects/{project_id}/jobs/{job_id}/events
 ```
 
+Health response shape:
+
+```json
+{
+  "status": "ok",
+  "app_mode": "web",
+  "version": "0.1.1",
+  "api_version": "v0",
+  "storage_schema_version": "2026-04-26.foundation.v1"
+}
+```
+
 Implemented import behavior:
 
 - `preview` splits text into chapter previews without persistence.

@@ -29,6 +29,8 @@ Primary goals:
 - Keep renderers for graph/map/timeline independent from the UI framework where practical.
 - Start with minimal vertical slices before porting complex visualizations.
 - Document architecture decisions as ADRs in `docs/adr/`.
+- For every code change, update `CHANGELOG.md` under `Unreleased` or a concrete version section.
+- When a change affects public API shape, storage schema, migrations, release behavior, or user-visible behavior, update the relevant version metadata as well: root `VERSION`, workspace `Cargo.toml`, and `crates/core/src/version.rs`.
 
 ## First Implementation Bias
 
