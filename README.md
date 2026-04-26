@@ -4,7 +4,7 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
-Current foundation version: `0.8.0`.
+Current foundation version: `0.9.0`.
 
 ## License
 
@@ -96,7 +96,7 @@ The first implementation milestone should not start with visualization. It shoul
 
 ## Current Status
 
-Foundation repository active. The Rust backend foundation now includes `core`, `storage`, `jobs`, `ai`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, job state validation, cancellation endpoints, persisted job events, local llama.cpp health/models/chat endpoints, a local draft chapter extraction endpoint, an aggregate project workspace snapshot endpoint, project archive/purge deletion support, and a managed local llama.cpp runtime that can pick an existing GGUF from disk, download small preset models into the repo `models/` directory, and start or stop `llama-server` from the Settings screen. The repository now also carries a local Windows `llama.cpp` runtime bundle in `tools/llama.cpp`, and the backend will prefer that bundled `llama-server.exe` when no explicit `LLAMA_CPP_SERVER_BIN` is set. The frontend `apps/web` shell now uses live API-backed data for the bookshelf, project overview, import preview/confirm flow, reading view, analysis job screens, and the local LLM Settings screen; it also includes bookshelf delete controls, light/dark/system color-mode controls, and persisted reading typography settings. The review screen is still an explicit placeholder until observation persistence and review-item APIs exist. Windows development also has a `scripts/dev-stack` launcher that starts backend and frontend together, injects frontend API base URLs, and cleans child processes up with the parent CLI session.
+Foundation repository active. The Rust backend foundation now includes `core`, `storage`, `jobs`, `ai`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, per-chapter analysis run state, translation job creation, job state validation, cancellation/pause endpoints, persisted job events, local llama.cpp health/models/chat endpoints, a local draft chapter extraction endpoint, an aggregate project workspace snapshot endpoint, project archive/purge deletion support, and a managed local llama.cpp runtime that can pick an existing GGUF from disk, download small preset models into the repo `models/` directory, and start or stop `llama-server` from the Settings screen. The repository now also carries a local Windows `llama.cpp` runtime bundle in `tools/llama.cpp`, and the backend will prefer that bundled `llama-server.exe` when no explicit `LLAMA_CPP_SERVER_BIN` is set. The frontend `apps/web` shell now uses live API-backed data for the bookshelf, project overview, import preview/confirm flow, reading view, analysis runner, and the local LLM Settings screen; it also includes bookshelf delete controls, light/dark/system color-mode controls, and persisted reading typography settings. The review screen is still an explicit placeholder until observation persistence and review-item APIs exist. Windows development also has a `scripts/dev-stack` launcher that starts backend and frontend together, injects frontend API base URLs, and cleans child processes up with the parent CLI session.
 
 See:
 

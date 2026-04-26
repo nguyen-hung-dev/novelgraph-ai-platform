@@ -42,6 +42,88 @@ export type AnalysisJob = {
 	updated_at: string;
 };
 
+export type AnalysisChapterState = {
+	chapter_id: string;
+	chapter_num: number;
+	title: string;
+	status: string;
+	run_id: string | null;
+	attempt: number | null;
+	prompt_schema_version: string | null;
+	error_code: string | null;
+	error_message: string | null;
+	started_at: string | null;
+	finished_at: string | null;
+	updated_at: string | null;
+};
+
+export type AnalysisRunSnapshot = {
+	job: AnalysisJob;
+	total_chapters: number;
+	completed_chapters: number;
+	running_chapters: number;
+	failed_chapters: number;
+	pending_chapters: number;
+	next_chapter_num: number | null;
+	paused_reason: string | null;
+	chapters: AnalysisChapterState[];
+	character_records: StoryExtractionRecord[];
+};
+
+export type StoryEvidenceSpan = {
+	chapter_num: number;
+	start_char: number | null;
+	end_char: number | null;
+	quote: string | null;
+	reason: string | null;
+};
+
+export type StoryCharacterMention = {
+	text: string;
+	start_char: number;
+	end_char: number;
+	mention_type: string | null;
+};
+
+export type StoryExtractionFieldValue = {
+	id: string;
+	field_id: string;
+	value: string;
+	confidence: number | null;
+	evidence: StoryEvidenceSpan[];
+	created_at: string;
+	updated_at: string;
+};
+
+export type StoryExtractionField = {
+	id: string;
+	record_id: string;
+	field_key: string;
+	field_label: string;
+	values: StoryExtractionFieldValue[];
+	created_at: string;
+	updated_at: string;
+};
+
+export type StoryExtractionRecord = {
+	id: string;
+	project_id: string;
+	novel_id: string;
+	chapter_id: string;
+	job_id: string;
+	run_id: string;
+	chapter_num: number;
+	group_key: string;
+	group_label: string;
+	entity_key: string | null;
+	display_name: string;
+	prompt_schema_version: string;
+	mentions: StoryCharacterMention[];
+	fields: StoryExtractionField[];
+	created_at: string;
+	updated_at: string;
+};
+
 export type JobEvent = {
 	id: string;
 	project_id: string;
@@ -90,6 +172,7 @@ export type ProjectWorkspaceSnapshot = {
 	chapters: Chapter[];
 	latest_analysis_job: AnalysisJob | null;
 	latest_job_events: JobEvent[];
+	character_records: StoryExtractionRecord[];
 };
 
 export type DeleteProjectResult = {

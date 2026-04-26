@@ -35,6 +35,24 @@
 - [ ] Lưu evidence spans.
 - [ ] Lưu review items.
 - [ ] Lưu usage event.
+- [ ] Lưu correction event khi người dùng sửa raw text, alias, entity, relationship hoặc glossary.
+- [ ] Đánh dấu stale cho observation/evidence/translation phụ thuộc sau khi source text hoặc alias thay đổi.
+
+## Agentic Automation
+
+- [ ] Analysis job chạy được từ đầu đến cuối mà không cần người dùng xác nhận từng chương.
+- [ ] Review item không chặn toàn bộ pipeline.
+- [ ] Pipeline tự retry, tự repair JSON, và tự resume khi provider hoạt động lại.
+- [ ] Raw LLM output chỉ dùng cho audit/debug, không làm nguồn sự thật chính.
+- [ ] Prompt dùng prompt registry có version, không hardcode trong handler.
+
+## Inline Editing
+
+- [ ] Chapter raw text có typed API để sửa trực tiếp từ reading UI.
+- [ ] Entity name và alias có typed API để sửa tại nơi hiển thị.
+- [ ] Relationship label/note có typed API để sửa tại nơi hiển thị.
+- [ ] Mỗi chỉnh sửa ghi DB ngay và trả về bản ghi/projection mới nhất.
+- [ ] Lỗi lưu phải giữ trạng thái edit để người dùng không mất nội dung đang sửa.
 
 ## Recovery
 

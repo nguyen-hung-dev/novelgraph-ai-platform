@@ -2,6 +2,14 @@
 
 This roadmap is intentionally foundation-first. The project should not rush into complex visualizations before the data and job model are stable.
 
+## Realtime-First Architecture Requirement
+
+- [x] Mọi thay đổi DB làm đổi dữ liệu người dùng nhìn thấy phải có event bền vững để UI có thể đồng bộ lại, không dựa vào refresh thủ công như đường đi chính.
+- [x] Module trích xuất nhân vật hiện tại phải ghi event riêng sau khi character records và mention spans được persist thành công.
+- [x] Reading workspace phải tự đồng bộ lại snapshot để highlight nhân vật mới có thể xuất hiện khi người dùng đang mở trang.
+- [ ] Thay cơ chế đồng bộ ngắn hạn bằng SSE/WebSocket chính thức cho project events, có reconnect và resume theo sequence.
+- [ ] Chuẩn hóa event schema versioning cho analysis, translation, inline edit, stale marking và review queue.
+
 ## Phase 0 - Repository Foundation
 
 - [x] Project name and README.
@@ -60,7 +68,10 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [ ] Observation persistence.
 - [ ] Review item generation.
 - [x] Local draft extraction endpoint.
+- [x] Character extraction persistence event for realtime UI sync.
 - [ ] Old-vs-new sample regression harness.
+- [ ] Agentic extraction run contract without human approval gates.
+- [ ] Stale markers for observations and evidence after raw source edits.
 
 ## Phase 5 - Parallel Translation
 
@@ -72,6 +83,8 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] Translation review items.
 - [ ] Side-by-side source/target reading plan.
 - [ ] Translation quality checks.
+- [ ] Parallel analysis/translation scheduler with dependency-aware resume.
+- [ ] Translation stale markers after raw text, glossary, alias, or entity edits.
 
 ## Phase 6 - Minimal Workspace UI
 
@@ -90,5 +103,9 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] Light, dark, and system color modes.
 - [x] Review route placeholder.
 - [ ] App theme presets beyond color mode.
+- [x] Reading workspace auto-sync for character extraction highlights.
 - [ ] Realtime event streaming client.
 - [ ] Review-item API integration.
+- [ ] Inline editing foundation for chapter text, entities, aliases, relationships, glossary, and translation segments.
+- [ ] Double-click edit, blur/Enter save, Escape cancel, and optimistic DB sync.
+- [ ] Copy catalog/i18n foundation so UI strings are not hardcoded.

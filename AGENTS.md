@@ -11,6 +11,7 @@ Primary goals:
 - Hosted web app with BYOK LLM keys.
 - Tauri desktop app with local/offline mode.
 - Evidence-first extraction pipeline.
+- Agentic analysis and translation that can run without human approval gates.
 - Rust backend, SvelteKit frontend, shared typed contracts.
 
 ## Structure
@@ -25,9 +26,16 @@ Primary goals:
 - Do not put secrets in the repo.
 - Do not store BYOK API keys in browser local storage.
 - Vietnamese text must be written with proper Vietnamese diacritics. Do not write Vietnamese as unaccented ASCII unless it is an identifier, slug, file path, command, or code token.
+- Do not hardcode user-facing copy, prompt text, translation templates, provider preset descriptions, or long status messages in feature code.
 - Prefer typed schemas and generated clients over hand-written ad hoc API shapes.
+- User-visible DB writes must have a realtime sync path; do not make manual page refresh the primary way to see newly persisted data.
 - Keep renderers for graph/map/timeline independent from the UI framework where practical.
 - Start with minimal vertical slices before porting complex visualizations.
+- Develop features in small manual-testable slices. Do not bundle unrelated work into one large pack.
+- The user should be able to manually test each meaningful feature before the next feature slice starts.
+- Avoid running broad automated test commands unless the user explicitly asks for them. Use only lightweight checks when necessary and say what was checked.
+- Prefer inline editing for visible domain data. Double-click enters edit mode, blur or Enter saves to DB through typed API, and Escape cancels.
+- Any user correction to raw chapter text, entity aliases, relationships, glossary terms, or translation segments must update DB and mark dependent data stale.
 - Document architecture decisions as ADRs in `docs/adr/`.
 - For feature milestones, release preparation, public API changes, schema changes, migrations, or meaningful user-visible behavior, update `CHANGELOG.md` under `Unreleased` or the planned release section.
 - Do not bump versions for every small bug fix, UI polish pass, dev-only adjustment, test-only change, or documentation clarification. Batch those changes into the active milestone or `Unreleased`.

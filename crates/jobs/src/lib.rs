@@ -26,6 +26,7 @@ impl JobKind {
 pub enum JobStatus {
     Pending,
     Running,
+    Paused,
     Completed,
     Failed,
     Cancelled,
@@ -36,6 +37,7 @@ impl JobStatus {
         match self {
             Self::Pending => "pending",
             Self::Running => "running",
+            Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -46,6 +48,7 @@ impl JobStatus {
         match value.trim() {
             "pending" => Ok(Self::Pending),
             "running" => Ok(Self::Running),
+            "paused" => Ok(Self::Paused),
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "cancelled" => Ok(Self::Cancelled),
@@ -78,10 +81,14 @@ pub fn validate_transition(from: JobStatus, to: JobStatus) -> Result<(), JobTran
     let allowed = matches!(
         (from, to),
         (JobStatus::Pending, JobStatus::Running)
+            | (JobStatus::Pending, JobStatus::Paused)
             | (JobStatus::Pending, JobStatus::Cancelled)
             | (JobStatus::Running, JobStatus::Completed)
             | (JobStatus::Running, JobStatus::Failed)
             | (JobStatus::Running, JobStatus::Cancelled)
+            | (JobStatus::Running, JobStatus::Paused)
+            | (JobStatus::Paused, JobStatus::Running)
+            | (JobStatus::Paused, JobStatus::Cancelled)
             | (JobStatus::Failed, JobStatus::Pending)
     );
 
@@ -111,10 +118,14 @@ mod tests {
     #[test]
     fn allows_expected_state_transitions() {
         assert!(validate_transition(JobStatus::Pending, JobStatus::Running).is_ok());
+        assert!(validate_transition(JobStatus::Pending, JobStatus::Paused).is_ok());
         assert!(validate_transition(JobStatus::Pending, JobStatus::Cancelled).is_ok());
         assert!(validate_transition(JobStatus::Running, JobStatus::Completed).is_ok());
         assert!(validate_transition(JobStatus::Running, JobStatus::Failed).is_ok());
         assert!(validate_transition(JobStatus::Running, JobStatus::Cancelled).is_ok());
+        assert!(validate_transition(JobStatus::Running, JobStatus::Paused).is_ok());
+        assert!(validate_transition(JobStatus::Paused, JobStatus::Running).is_ok());
+        assert!(validate_transition(JobStatus::Paused, JobStatus::Cancelled).is_ok());
         assert!(validate_transition(JobStatus::Failed, JobStatus::Pending).is_ok());
     }
 

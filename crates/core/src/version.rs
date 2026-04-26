@@ -2,7 +2,7 @@ pub const APP_NAME: &str = "NovelGraph AI Platform";
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const API_VERSION: &str = "v0";
 pub const RELEASE_CHANNEL: &str = "foundation";
-pub const STORAGE_SCHEMA_VERSION: &str = "2026-04-27.foundation.v3";
+pub const STORAGE_SCHEMA_VERSION: &str = "2026-04-27.foundation.v5";
 
 #[cfg(test)]
 mod tests {

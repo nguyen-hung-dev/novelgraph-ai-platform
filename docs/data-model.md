@@ -1,6 +1,6 @@
 # Data Model
 
-This document sketches the target logical data model. The SQLite/PostgreSQL migrations now implement the foundation identity, project, novel source, analysis job, job event, translation job, glossary, usage, and job lifecycle fields.
+This document sketches the target logical data model. The SQLite/PostgreSQL migrations now implement the foundation identity, project, novel source, analysis job, per-chapter analysis run state, parsed story extraction records, job event, translation job, glossary, usage, and job lifecycle fields.
 
 ## Principles
 
@@ -8,6 +8,8 @@ This document sketches the target logical data model. The SQLite/PostgreSQL migr
 - Observations are evidence-linked.
 - UI views are projections, not source truth.
 - Desktop and web should share logical models even if physical databases differ.
+- User corrections from inline editing are first-class writes, not temporary UI state.
+- Dependent projections must be marked stale when source text, aliases, glossary, relationships, or translations change.
 
 ## Identity and Workspace
 
@@ -44,7 +46,7 @@ Current implementation:
 
 ```text
 analysis_jobs
-analysis_runs
+analysis_chapter_runs
 prompt_runs
 llm_usage_events
 job_events
@@ -53,8 +55,10 @@ job_events
 Current implementation:
 
 - `analysis_jobs` stores pending analysis jobs created by import confirmation.
+- `analysis_chapter_runs` stores one row per job/chapter with status, attempt count, prompt schema version, raw draft output JSON, error fields, and started/finished timestamps.
 - `job_events` stores sequenced events for both analysis and translation jobs.
 - `analysis_jobs` and `translation_jobs` expose `started_at`, `finished_at`, `error_code`, and `error_message`.
+- Analysis jobs can enter `paused` when local execution is interrupted or local llama.cpp is unreachable; completed chapter runs are skipped on resume.
 - Job state transitions are validated in `crates/jobs`.
 
 ## Evidence and Observations
@@ -64,7 +68,19 @@ evidence_spans
 observations
 review_items
 user_corrections
+stale_marks
+story_extraction_records
+story_extraction_fields
+story_extraction_values
 ```
+
+Rules:
+
+- `story_extraction_records`, `story_extraction_fields`, and `story_extraction_values` currently persist the focused `character` extraction slice.
+- `user_corrections` records who or what changed raw text, aliases, entities, relationships, glossary entries, or translation segments.
+- `stale_marks` records dependent data that needs rerun, refresh, or human review after a correction.
+- AI-generated observations and user-corrected observations must remain distinguishable.
+- Raw LLM output is audit/debug data and should not be treated as the main source of truth.
 
 ## Translation
 
@@ -82,6 +98,8 @@ Rules:
 - Translation output is versioned.
 - Approved glossary entries can be used by both translation and analysis.
 - Source text remains authoritative for evidence.
+- User-edited translation segments should be protected from automatic overwrite unless a force rerun is explicit.
+- Glossary, alias, and source text edits should mark affected translation segments stale.
 - The first implementation persists `translation_jobs`, `translation_segments`, `glossary_entries`, `style_profiles`, and `translation_review_items`; execution and review workflows are still planned.
 
 Observation example:

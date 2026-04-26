@@ -18,6 +18,8 @@ The rewrite should not copy the old architecture directly. It should preserve th
 - Desktop/offline mode.
 - Safer evidence-grounded extraction.
 - Parallel translation with glossary and source alignment.
+- Agentic analysis and translation that can run without human approval gates.
+- Direct UI correction where displayed data is persisted to DB immediately.
 - Cleaner storage and job orchestration.
 
 ## Target Stack
@@ -56,6 +58,7 @@ Expected primary screens:
 ## Data Principle
 
 Do not make raw LLM JSON the source of truth.
+Do not make UI-only state the source of truth for user corrections.
 
 Store:
 
@@ -65,4 +68,6 @@ Store:
 - Entity aliases and mentions.
 - Review decisions.
 - Translation segments and glossary revisions.
+- User correction events from inline editing.
+- Stale markers for dependent projections after corrections.
 - Generated projections/cache for UI.

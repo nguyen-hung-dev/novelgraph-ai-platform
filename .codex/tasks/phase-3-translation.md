@@ -10,6 +10,8 @@ Goal: support story translation in parallel with AI analysis without weakening s
 - Glossary and style guide model.
 - Translation review items.
 - Side-by-side reading UI.
+- Agentic translation jobs that can run without per-segment human approval.
+- Inline correction flow for translation segments and glossary terms.
 
 ## Rules
 
@@ -18,6 +20,9 @@ Goal: support story translation in parallel with AI analysis without weakening s
 - Translated text must not replace source evidence.
 - Glossary changes should be tracked and may trigger retranslation.
 - Translation provider usage must be tracked separately from analysis usage.
+- Review items should not block the whole translation pipeline.
+- User-edited translation segments must not be overwritten unless force rerun is explicit.
+- Prompt templates and UI copy must come from registries, not feature-code literals.
 
 ## First Slice
 
@@ -27,4 +32,4 @@ Goal: support story translation in parallel with AI analysis without weakening s
 - Add glossary entry model.
 - Add API contract draft.
 - Add side-by-side reading UI placeholder.
-
+- Add stale marker behavior for glossary, alias, source text, and translation edits.

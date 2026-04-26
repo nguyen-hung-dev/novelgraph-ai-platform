@@ -127,6 +127,8 @@ export function jobStatusTone(status: string): Tone {
 			return 'good';
 		case 'running':
 			return 'teal';
+		case 'paused':
+			return 'warning';
 		case 'failed':
 			return 'danger';
 		case 'cancelled':

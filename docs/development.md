@@ -1,6 +1,6 @@
 # Development Guide
 
-The Rust backend foundation and the first live SvelteKit workspace wiring are scaffolded. Bookshelf, import preview/confirm, reading, and analysis screens now use real API data. Durable AI workers, realtime streaming, and review-item APIs are still in progress.
+The Rust backend foundation and the first live SvelteKit workspace wiring are scaffolded. Bookshelf, import preview/confirm, reading, and analysis screens now use real API data. The Analysis screen can now step through chapter-level local draft extraction with pause/resume controls. Durable background workers, realtime streaming, and review-item APIs are still in progress.
 
 ## Prerequisites
 
@@ -84,6 +84,16 @@ curl -X POST http://127.0.0.1:3000/api/projects \
   -d "{\"name\":\"Demo\"}"
 curl http://127.0.0.1:3000/api/local-llm/health
 curl http://127.0.0.1:3000/api/local-llm/runtime
+```
+
+Analysis runner smoke test:
+
+```bash
+# after importing a novel, use the latest analysis job id from the workspace response
+curl http://127.0.0.1:3000/api/projects/{project_id}/analysis/jobs/{job_id}/run
+curl -X POST http://127.0.0.1:3000/api/projects/{project_id}/analysis/jobs/{job_id}/run/step \
+  -H "content-type: application/json" \
+  -d "{\"force\":false}"
 ```
 
 Frontend commands now run from the repository root:

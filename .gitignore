@@ -13,6 +13,9 @@ desktop.ini
 *.log
 logs/
 
+# Python cache
+__pycache__/
+
 # Environment and secrets
 .env
 .env.*
@@ -43,6 +46,7 @@ src-tauri/binaries/
 /storage/
 /uploads/
 /exports/
+/output/
 *.db
 *.db-shm
 *.db-wal
@@ -62,3 +66,4 @@ qdrant-storage/
 
 # Local planning notes not committed to the public/private GitHub repo
 docs/architecture-and-rewrite.md
+note.txt

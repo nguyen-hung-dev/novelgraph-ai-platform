@@ -27,6 +27,8 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
   - [x] Rust check/test.
   - [ ] Frontend typecheck/lint.
   - [ ] Secret scan.
+- [ ] Chốt copy catalog/i18n registry để không hardcode chuỗi UI.
+- [ ] Chốt prompt registry có version để không hardcode prompt trong code.
 
 ## Tầng 2 - Web Hosted
 
@@ -53,6 +55,8 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [ ] Chốt observation model.
 - [ ] Chốt glossary model.
 - [ ] Chốt review item model.
+- [ ] Chốt agentic pipeline contract để analysis/translation chạy không cần người dùng duyệt từng bước.
+- [ ] Chốt stale marker model cho dữ liệu phụ thuộc sau khi user sửa trực tiếp.
 - [x] Chốt job event model.
 - [ ] Chốt regression fixture strategy.
 
@@ -64,6 +68,8 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [x] Analysis progress.
 - [x] BYOK settings.
 - [x] Review route placeholder.
+- [ ] Inline edit raw chapter text từ reading UI và ghi DB ngay.
+- [ ] Inline edit entity, alias, relationship, glossary và translation segment.
 - [ ] Reading song ngữ source/target.
 
 ## Tầng 6 - Release

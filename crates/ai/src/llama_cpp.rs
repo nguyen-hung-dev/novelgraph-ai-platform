@@ -192,6 +192,7 @@ mod tests {
             }],
             temperature: Some(0.2),
             max_tokens: Some(128),
+            chat_template_kwargs: None,
             stream: false,
         };
         let value = serde_json::to_value(request).unwrap();

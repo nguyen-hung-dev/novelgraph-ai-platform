@@ -2,6 +2,13 @@
 
 Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớn quá sớm.
 
+## Định Hướng Realtime
+
+- Mọi tác vụ ghi DB làm thay đổi dữ liệu hiển thị trên UI phải tạo event bền vững trong cùng transaction hoặc ngay sau transaction thành công.
+- UI không được phụ thuộc vào thao tác refresh thủ công để thấy kết quả analysis, translation, inline edit hoặc stale marking mới.
+- Cầu nối hiện tại có thể dùng snapshot invalidation ngắn hạn cho lát nhỏ, nhưng kiến trúc chính thức phải là project event stream bằng SSE hoặc WebSocket với reconnect và resume theo sequence.
+- Module trích xuất nhân vật hiện tại là lát đầu tiên áp dụng chuẩn này: persist character records, persist mention spans, ghi event riêng, rồi Reading workspace tự đồng bộ để hiển thị highlight mới.
+
 ## Phase 0 - Repo Foundation
 
 - Chốt tên project, README, license, coding conventions.
@@ -24,6 +31,7 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
   - observations
   - evidence_spans
 - WebSocket/SSE event contract cho job progress.
+- Project event stream cho mọi dữ liệu người dùng nhìn thấy sau khi DB thay đổi.
 - Typed error model.
 
 ## Phase 2 - BYOK and AI Provider Layer
@@ -54,6 +62,8 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 - Retry/repair policy.
 - Persist observations, not raw LLM blobs as the main truth.
 - Add old-vs-new regression harness against sample novels.
+- Add an agentic run contract so extraction can continue without human approval.
+- Add stale markers for observations, translations, and evidence when source chapter text changes.
 
 ## Phase 5 - Parallel Translation Foundation
 
@@ -63,6 +73,8 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 - Add translation review item model.
 - Draft translation prompt contract.
 - Add side-by-side reading UI placeholder.
+- Allow translation jobs to run in parallel with analysis when dependencies are satisfied.
+- Mark translation segments stale when raw text, glossary, alias, or entity canonical names change.
 
 ## Phase 6 - Minimal Workspace UI
 
@@ -72,6 +84,11 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 - Analysis progress page.
 - Reading page with chapter navigation.
 - Current slice: typed API wiring is live for bookshelf, import, reading, analysis, and local LLM settings; bookshelf delete modes, local model picker/preset downloads, and reading typography controls are also live; review remains placeholder-only until observation APIs exist.
+- Current realtime bridge: reading workspace tự invalidate snapshot để thấy character highlights mới sau khi analysis persist dữ liệu; cần thay bằng SSE/WebSocket chính thức ở milestone kế tiếp.
+- Inline editing foundation for reading, entity, alias, relationship, glossary, and translation fields.
+- Double-click enters edit mode; blur or Enter saves through typed API; Escape cancels.
+- User corrections must persist to DB and update downstream stale/projection state.
+- Add copy catalog/i18n and prompt registry foundations before adding more hardcoded UI/prompt text.
 
 ## Early Non-Goals
 

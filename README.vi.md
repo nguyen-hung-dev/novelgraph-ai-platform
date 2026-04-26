@@ -2,7 +2,7 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
-Phiên bản foundation hiện tại: `0.8.0`.
+Phiên bản foundation hiện tại: `0.9.0`.
 
 ## Giấy Phép
 
@@ -59,7 +59,7 @@ Import -> Split -> Prescan -> ExtractChapter[n] -> Normalize -> Aggregate
 
 ## Trạng Thái Hiện Tại
 
-Repo đang ở giai đoạn foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `jobs`, `ai`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job, kiểm tra trạng thái job, endpoint cancel job, lưu job event, endpoint local llama.cpp health/models/chat, endpoint draft extraction local cho một chương, endpoint aggregate workspace snapshot cho từng project, cơ chế xóa project theo hai chế độ archive hoặc purge dữ liệu, và local runtime manager cho llama.cpp để chọn GGUF có sẵn trên máy, tải preset nhỏ về thư mục `models/` trong repo, rồi start/stop `llama-server` ngay từ màn Settings. Repo hiện cũng đã có sẵn bundle runtime Windows của `llama.cpp` trong `tools/llama.cpp`, và backend sẽ tự ưu tiên dùng `llama-server.exe` ở đó nếu bạn chưa đặt `LLAMA_CPP_SERVER_BIN`. Phần frontend `apps/web` hiện đã nối dữ liệu thật cho bookshelf, overview, import preview/confirm, reading, analysis job và Settings local LLM bằng typed API client phía server; đồng thời đã có nút xóa project trên bookshelf, chế độ sáng/tối/system cho toàn app, và modal chỉnh cỡ chữ, dãn dòng cho màn đọc. Màn review đã được chuyển thành placeholder rõ ràng cho tới khi observation persistence và review-item API hoàn thiện.
+Repo đang ở giai đoạn foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `jobs`, `ai`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, lưu trạng thái phân tích theo từng chương, tạo translation job, kiểm tra trạng thái job, endpoint cancel/pause job, lưu job event, endpoint local llama.cpp health/models/chat, endpoint draft extraction local cho một chương, endpoint aggregate workspace snapshot cho từng project, cơ chế xóa project theo hai chế độ archive hoặc purge dữ liệu, và local runtime manager cho llama.cpp để chọn GGUF có sẵn trên máy, tải preset nhỏ về thư mục `models/` trong repo, rồi start/stop `llama-server` ngay từ màn Settings. Repo hiện cũng đã có sẵn bundle runtime Windows của `llama.cpp` trong `tools/llama.cpp`, và backend sẽ tự ưu tiên dùng `llama-server.exe` ở đó nếu bạn chưa đặt `LLAMA_CPP_SERVER_BIN`. Phần frontend `apps/web` hiện đã nối dữ liệu thật cho bookshelf, overview, import preview/confirm, reading, analysis runner và Settings local LLM bằng typed API client phía server; đồng thời đã có nút xóa project trên bookshelf, chế độ sáng/tối/system cho toàn app, và modal chỉnh cỡ chữ, dãn dòng cho màn đọc. Màn review đã được chuyển thành placeholder rõ ràng cho tới khi observation persistence và review-item API hoàn thiện.
 
 Hiện đã có:
 

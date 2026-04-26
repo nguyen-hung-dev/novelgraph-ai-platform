@@ -63,6 +63,159 @@ pub struct AnalysisJob {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnalysisChapterRun {
+    pub id: String,
+    pub project_id: String,
+    pub job_id: String,
+    pub novel_id: String,
+    pub chapter_id: String,
+    pub chapter_num: i64,
+    pub status: String,
+    pub attempt: i64,
+    pub prompt_schema_version: Option<String>,
+    pub output_json: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnalysisChapterState {
+    pub chapter_id: String,
+    pub chapter_num: i64,
+    pub title: String,
+    pub status: String,
+    pub run_id: Option<String>,
+    pub attempt: Option<i64>,
+    pub prompt_schema_version: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnalysisRunSnapshot {
+    pub job: AnalysisJob,
+    pub total_chapters: usize,
+    pub completed_chapters: usize,
+    pub running_chapters: usize,
+    pub failed_chapters: usize,
+    pub pending_chapters: usize,
+    pub next_chapter_num: Option<i64>,
+    pub paused_reason: Option<String>,
+    pub chapters: Vec<AnalysisChapterState>,
+    pub character_records: Vec<StoryExtractionRecordView>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnalysisRunStepInput {
+    #[serde(default)]
+    pub force: bool,
+    pub from_chapter_num: Option<i64>,
+    pub to_chapter_num: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionDocument {
+    pub schema_version: String,
+    pub chapter_num: i64,
+    #[serde(default)]
+    pub records: Vec<StoryExtractionRecordPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionRecordPayload {
+    pub group_key: String,
+    pub group_label: String,
+    pub entity_key: Option<String>,
+    pub display_name: String,
+    #[serde(default)]
+    pub mentions: Vec<StoryCharacterMention>,
+    #[serde(default)]
+    pub fields: Vec<StoryExtractionFieldPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoryCharacterMention {
+    pub text: String,
+    pub start_char: i64,
+    pub end_char: i64,
+    pub mention_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionFieldPayload {
+    pub field_key: String,
+    pub field_label: String,
+    #[serde(default)]
+    pub values: Vec<StoryExtractionFieldValuePayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionFieldValuePayload {
+    pub value: String,
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub evidence: Vec<StoryEvidenceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryEvidenceSpan {
+    pub chapter_num: i64,
+    pub start_char: Option<i64>,
+    pub end_char: Option<i64>,
+    pub quote: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionRecordView {
+    pub id: String,
+    pub project_id: String,
+    pub novel_id: String,
+    pub chapter_id: String,
+    pub job_id: String,
+    pub run_id: String,
+    pub chapter_num: i64,
+    pub group_key: String,
+    pub group_label: String,
+    pub entity_key: Option<String>,
+    pub display_name: String,
+    pub prompt_schema_version: String,
+    pub mentions: Vec<StoryCharacterMention>,
+    pub fields: Vec<StoryExtractionFieldView>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionFieldView {
+    pub id: String,
+    pub record_id: String,
+    pub field_key: String,
+    pub field_label: String,
+    pub values: Vec<StoryExtractionFieldValueView>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryExtractionFieldValueView {
+    pub id: String,
+    pub field_id: String,
+    pub value: String,
+    pub confidence: Option<f64>,
+    pub evidence: Vec<StoryEvidenceSpan>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TranslationJob {
     pub id: String,
     pub project_id: String,
@@ -153,7 +306,7 @@ pub struct NovelImportResult {
     pub analysis_job: AnalysisJob,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectWorkspaceSnapshot {
     pub project: Project,
     pub novels: Vec<Novel>,
@@ -161,6 +314,7 @@ pub struct ProjectWorkspaceSnapshot {
     pub chapters: Vec<Chapter>,
     pub latest_analysis_job: Option<AnalysisJob>,
     pub latest_job_events: Vec<JobEvent>,
+    pub character_records: Vec<StoryExtractionRecordView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

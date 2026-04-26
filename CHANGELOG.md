@@ -8,6 +8,40 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.9.0] - 2026-04-27
+
+### Added
+
+- Added persisted `analysis_chapter_runs` state so analysis jobs can track chapter-level pending, running, completed, and failed progress.
+- Added analysis run API controls for snapshot reads, per-chapter stepping, manual pause, and force rerun reset.
+- Added an Analysis screen runner with Start/Resume, Pause, Force rerun, progress metrics, and per-chapter status display.
+- Added persisted character-only story extraction records with record, field, value, confidence, and evidence storage.
+- Added Analysis screen chapter range inputs so manual runs can target one chapter or a chapter range.
+- Added parsed character extraction results to the Analysis screen.
+- Added Reading screen highlighting for AI evidence quotes from parsed character extraction records.
+- Changed Reading screen highlighting to use character mention spans instead of generic field evidence quotes.
+- Added a persisted character extraction event and Reading workspace auto-sync so new character highlights can appear without manual refresh.
+- Added chunked character extraction so one chapter is processed as smaller LLM requests before records are merged and persisted.
+- Added stop checks between character extraction chunks so Pause/Cancel can take effect before the next local LLM request starts.
+- Added mention span repair for character extraction so invalid local LLM offsets are matched back to `mention.text` or dropped instead of failing the whole chunk.
+- Added staged character extraction passes per chunk: identity and aliases first, persisted to DB, then DB-backed mention extraction, then DB-backed field extraction.
+- Added llama.cpp `enable_thinking=false` request support for local JSON extraction passes.
+- Added a standalone Python alias extraction test script that chunks a full chapter and writes JSON reports under `output/`.
+
+### Changed
+
+- Added a resumable `paused` job state for analysis jobs so local LLM or backend connection failures can stop the run without cancelling the job.
+- Updated analysis execution to use the `story_character_extraction.v1` schema for the first focused extraction slice.
+- Updated the character extraction prompt and persistence path to prefer and normalize ASCII snake_case `field_key` values.
+- Updated the character extraction prompt to return offsets relative to each provided text chunk, then convert them back to full-chapter offsets in the backend.
+- Updated the character extraction prompt to tell local models to omit uncertain mention offsets instead of guessing placeholder spans.
+- Updated the character extraction prompt so highlights use minimal standalone character surface forms and relationship/context words move into fields instead of long mention phrases.
+- Updated character extraction from one large all-in-one JSON prompt to smaller JSON array prompts for identity, mentions, and fields.
+- Increased the local character field extraction token budget to reduce truncated JSON array responses from local models.
+- Updated roadmap, implementation plan, API contract, frontend tasks, and extraction checklist to make realtime UI sync a required architecture direction.
+- Updated app version metadata to `0.9.0`.
+- Updated storage schema version to `2026-04-27.foundation.v5`.
+
 ## [0.8.0] - 2026-04-27
 
 ### Added

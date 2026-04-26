@@ -61,6 +61,19 @@
 - [x] Cỡ chữ và dãn dòng.
 - [x] Entity highlight placeholder.
 - [x] Persist reading position.
+- [ ] Nháy đúp raw text để sửa trực tiếp hoặc mở editor panel tại đúng chương.
+- [ ] Blur hoặc Enter lưu raw text vào DB qua typed API.
+- [ ] Escape hủy sửa và khôi phục dữ liệu từ DB/projection hiện tại.
+- [ ] Sửa raw text phải hiển thị trạng thái stale cho analysis/translation liên quan.
+
+## Inline Editing UX
+
+- [ ] Component inline edit dùng chung cho text ngắn.
+- [ ] Không làm nhảy layout khi chuyển view/edit.
+- [ ] Optimistic update rồi reconcile bằng response từ API.
+- [ ] Lỗi lưu hiển thị gần field và không mất dữ liệu đang nhập.
+- [ ] Entity, alias, relationship, glossary, translation segment đều có đường sửa tại nơi hiển thị.
+- [ ] Chuỗi UI lấy từ copy catalog/i18n registry, không hardcode trong component.
 
 ## Analysis UI
 
@@ -70,3 +83,5 @@
 - [x] Current stage.
 - [ ] Failed chapter list.
 - [ ] Retry failed chapters.
+- [ ] Start/Resume chạy theo agentic pipeline, không cần người dùng xác nhận từng chương.
+- [ ] Pause request phản hồi ngay trên UI và dừng ở ranh giới an toàn của job.

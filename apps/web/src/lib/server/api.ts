@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import type {
 	AnalysisJob,
+	AnalysisRunSnapshot,
 	ApiErrorEnvelope,
 	DeleteProjectResult,
 	ImportPreview,
@@ -121,6 +122,53 @@ export async function cancelAnalysisJob(fetchFn: FetchLike, projectId: string, j
 	return requestJson<AnalysisJob>(
 		fetchFn,
 		`/api/projects/${projectId}/analysis/jobs/${jobId}/cancel`,
+		{
+			method: 'POST'
+		}
+	);
+}
+
+export async function getAnalysisRun(fetchFn: FetchLike, projectId: string, jobId: string) {
+	return requestJson<AnalysisRunSnapshot>(
+		fetchFn,
+		`/api/projects/${projectId}/analysis/jobs/${jobId}/run`
+	);
+}
+
+export async function stepAnalysisRun(
+	fetchFn: FetchLike,
+	projectId: string,
+	jobId: string,
+	input: { force?: boolean; from_chapter_num?: number; to_chapter_num?: number } = {}
+) {
+	return requestJson<AnalysisRunSnapshot>(
+		fetchFn,
+		`/api/projects/${projectId}/analysis/jobs/${jobId}/run/step`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				force: Boolean(input.force),
+				from_chapter_num: input.from_chapter_num,
+				to_chapter_num: input.to_chapter_num
+			})
+		}
+	);
+}
+
+export async function resetAnalysisRun(fetchFn: FetchLike, projectId: string, jobId: string) {
+	return requestJson<AnalysisRunSnapshot>(
+		fetchFn,
+		`/api/projects/${projectId}/analysis/jobs/${jobId}/run/reset`,
+		{
+			method: 'POST'
+		}
+	);
+}
+
+export async function pauseAnalysisRun(fetchFn: FetchLike, projectId: string, jobId: string) {
+	return requestJson<AnalysisRunSnapshot>(
+		fetchFn,
+		`/api/projects/${projectId}/analysis/jobs/${jobId}/pause`,
 		{
 			method: 'POST'
 		}

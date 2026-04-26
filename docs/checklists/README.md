@@ -22,3 +22,4 @@ Các checklist trong thư mục này dùng Markdown task list để theo dõi ti
 - [ ] [07-desktop-local-checklist.md](07-desktop-local-checklist.md)
 - [ ] [08-release-readiness-checklist.md](08-release-readiness-checklist.md)
 - [ ] [09-translation-parallel-checklist.md](09-translation-parallel-checklist.md)
+- [ ] [10-major-group-extraction-checklist.md](10-major-group-extraction-checklist.md)

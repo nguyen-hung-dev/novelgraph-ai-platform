@@ -1,15 +1,12 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { invalidateAll } from '$app/navigation';
 	import { Settings2, RotateCcw, X } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
-	import {
-		chapterParagraphs,
-		countWords,
-		prettyEventLabel,
-		summarizeEventPayload
-	} from '$lib/workspace/presenters';
+	import { countWords, prettyEventLabel, summarizeEventPayload } from '$lib/workspace/presenters';
+	import type { StoryCharacterMention, StoryExtractionRecord } from '$lib/api/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -54,6 +51,22 @@
 		}
 	});
 
+	onMount(() => {
+		if (!browser) {
+			return;
+		}
+
+		const interval = window.setInterval(() => {
+			if (document.visibilityState === 'visible') {
+				void invalidateAll();
+			}
+		}, 2000);
+
+		return () => {
+			window.clearInterval(interval);
+		};
+	});
+
 	$effect(() => {
 		if (!selectedChapterId && data.workspace.chapters[0]) {
 			selectedChapterId = data.workspace.chapters[0].id;
@@ -83,18 +96,127 @@
 			data.workspace.chapters[0] ??
 			null
 	);
-	const activeParagraphs = $derived(activeChapter ? chapterParagraphs(activeChapter) : []);
+	const activeParagraphBlocks = $derived(activeChapter ? buildParagraphBlocks(activeChapter.content) : []);
+	const activeCharacterRecords = $derived(
+		activeChapter
+			? data.workspace.character_records.filter(
+					(record) => record.chapter_num === activeChapter.chapter_num
+				)
+			: []
+	);
+	const activeHighlightMentions = $derived(buildHighlightMentions(activeCharacterRecords));
 	const hitCount = $derived(
 		searchQuery.trim().length === 0
 			? 0
-			: activeParagraphs.filter((paragraph) =>
-					paragraph.toLowerCase().includes(searchQuery.trim().toLowerCase())
+			: activeParagraphBlocks.filter((block) =>
+					block.text.toLowerCase().includes(searchQuery.trim().toLowerCase())
 				).length
 	);
 
 	function resetReadingSettings() {
 		fontSizePx = 15;
 		lineHeightValue = 1.65;
+	}
+
+	type HighlightSegment = {
+		text: string;
+		highlighted: boolean;
+	};
+
+	type ParagraphBlock = {
+		text: string;
+		start_char: number;
+		end_char: number;
+	};
+
+	function buildParagraphBlocks(text: string): ParagraphBlock[] {
+		const blocks: ParagraphBlock[] = [];
+		const matches = text.matchAll(/\S[\s\S]*?(?=(?:\r?\n){2,}|$)/g);
+
+		for (const match of matches) {
+			const raw = match[0];
+			let start = match.index ?? 0;
+			let end = start + raw.length;
+			const leading = raw.match(/^\s*/)?.[0].length ?? 0;
+			const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
+			start += leading;
+			end -= trailing;
+
+			if (end > start) {
+				blocks.push({
+					text: text.slice(start, end),
+					start_char: start,
+					end_char: end
+				});
+			}
+		}
+
+		return blocks;
+	}
+
+	function buildHighlightMentions(records: StoryExtractionRecord[]) {
+		const seen = new Set<string>();
+		const mentions: StoryCharacterMention[] = [];
+		for (const record of records) {
+			for (const mention of record.mentions) {
+				const key = `${mention.start_char}:${mention.end_char}:${mention.text}`;
+				if (mention.text.trim().length >= 1 && mention.end_char > mention.start_char && !seen.has(key)) {
+					seen.add(key);
+					mentions.push(mention);
+				}
+			}
+		}
+
+		return mentions.sort(
+			(left, right) => left.start_char - right.start_char || right.end_char - left.end_char
+		);
+	}
+
+	function highlightParagraph(block: ParagraphBlock, mentions: StoryCharacterMention[]): HighlightSegment[] {
+		const matches: Array<{ start: number; end: number }> = [];
+
+		for (const mention of mentions) {
+			if (mention.start_char < block.start_char || mention.end_char > block.end_char) {
+				continue;
+			}
+
+			const start = mention.start_char - block.start_char;
+			const end = mention.end_char - block.start_char;
+			if (!matches.some((match) => start < match.end && end > match.start)) {
+				matches.push({ start, end });
+			}
+		}
+
+		if (matches.length === 0) {
+			return [{ text: block.text, highlighted: false }];
+		}
+
+		matches.sort((left, right) => left.start - right.start);
+
+		const segments: HighlightSegment[] = [];
+		let cursor = 0;
+		for (const match of matches) {
+			if (match.start > cursor) {
+				segments.push({
+					text: block.text.slice(cursor, match.start),
+					highlighted: false
+				});
+			}
+			segments.push({
+				text: block.text.slice(match.start, match.end),
+				highlighted: true
+			});
+			cursor = match.end;
+		}
+
+		if (cursor < block.text.length) {
+			segments.push({
+				text: block.text.slice(cursor),
+				highlighted: false
+			});
+		}
+
+		return segments;
 	}
 </script>
 
@@ -146,6 +268,14 @@
 								label={hitCount > 0 ? `${hitCount} matches` : 'No active search'}
 								tone={hitCount > 0 ? 'teal' : 'neutral'}
 							/>
+							<StatusPill
+								label={
+									activeHighlightMentions.length > 0
+										? `${activeHighlightMentions.length} AI mentions`
+										: 'No AI highlights'
+								}
+								tone={activeHighlightMentions.length > 0 ? 'teal' : 'neutral'}
+							/>
 							<button
 								aria-label="Reading settings"
 								class="icon-button"
@@ -162,8 +292,16 @@
 							class="reading-copy"
 							style={`--reading-font-size: ${fontSizePx}px; --reading-line-height: ${lineHeightValue};`}
 						>
-							{#each activeParagraphs as paragraph (`${activeChapter.id}:${paragraph.slice(0, 24)}`)}
-								<p>{paragraph}</p>
+							{#each activeParagraphBlocks as block (`${activeChapter.id}:${block.start_char}`)}
+								<p>
+									{#each highlightParagraph(block, activeHighlightMentions) as segment}
+										{#if segment.highlighted}
+											<span class="reading-highlight">{segment.text}</span>
+										{:else}
+											{segment.text}
+										{/if}
+									{/each}
+								</p>
 							{/each}
 						</div>
 					</div>
@@ -173,11 +311,30 @@
 			</Panel>
 
 			<div class="list-stack">
-				<Panel subtitle="Observation API chưa sẵn sàng" title="Entity focus">
-					<div class="empty-note">
-						Chưa có extracted entity nào được persist. Bước tiếp theo là nối draft extraction vào
-						observation pipeline và review queue.
-					</div>
+				<Panel subtitle="Character records from latest analysis run" title="Entity focus">
+					{#if activeCharacterRecords.length > 0}
+						<div class="detail-list">
+							{#each activeCharacterRecords as record (record.id)}
+								<div class="info-card">
+									<div class="status-row">
+										<div>
+											<div class="nav-link__title">{record.display_name}</div>
+											<div class="nav-link__meta">
+												Chapter {record.chapter_num} · {record.entity_key ?? 'no entity key'} ·
+												{record.mentions.length} mentions
+											</div>
+										</div>
+										<StatusPill label={`${record.fields.length} fields`} tone="teal" />
+									</div>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="empty-note">
+							Chưa có dữ liệu nhân vật đã parse cho chương đang đọc. Hãy chạy analysis cho chương
+							này trước.
+						</div>
+					{/if}
 				</Panel>
 
 				<Panel subtitle="Latest job events for context" title="Evidence panel">

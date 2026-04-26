@@ -5,7 +5,7 @@
 - App version: `0.8.0`
 - API version: `v0`
 - Release channel: `foundation`
-- Storage schema version: `2026-04-27.foundation.v3`
+- Storage schema version: `2026-04-27.foundation.v4`
 
 ## Required Files
 

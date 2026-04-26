@@ -20,7 +20,9 @@ Build a hybrid web/desktop AI novel analysis platform:
 - Web: hosted multi-user workspace with BYOK LLM keys.
 - Desktop: Tauri app with local storage and local AI.
 - Shared UI: dense desktop-style workspace.
-- Core pipeline: evidence-first extraction and reviewable projections.
+- Core pipeline: evidence-first extraction, parallel translation, and reviewable projections.
+- Automation: analysis and translation should run as agentic pipelines without human approval gates.
+- Editing: visible domain data should support direct inline correction that persists to DB.
 - Change hygiene: meaningful feature milestones and release boundaries must account for changelog and version metadata.
 
 ## Current Priority
@@ -32,6 +34,8 @@ Foundation slices in progress:
 - Prioritize local llama.cpp execution before hosted BYOK provider execution.
 - Keep the local llama.cpp settings flow usable: existing GGUF files run in place, preset models download into repo `models/`, and `llama-server` control stays API-backed.
 - Keep the SvelteKit workspace shell on the typed API path that now powers bookshelf, import, reading, and analysis screens.
+- Add copy/prompt registries before adding more user-facing strings or provider prompts; do not hardcode long UI/prompt text in feature code.
+- Design inline editing so double-click edits, blur or Enter saves, and Escape cancels across reading, entity, glossary, and translation surfaces.
 - Prefer aggregate workspace reads first, then add realtime events and reusable split-pane components on top.
 - Keep the web shell visually aligned with the future desktop shell.
 - Do not start complex graph/map/timeline rendering yet.

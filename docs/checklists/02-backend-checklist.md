@@ -60,6 +60,9 @@
 - [x] Chạy migration trên SQLite.
 - [ ] Chạy migration trên PostgreSQL.
 - [x] Viết repository tests.
+- [ ] Thêm bảng hoặc trường `user_corrections` cho chỉnh sửa trực tiếp từ UI.
+- [ ] Thêm bảng hoặc trường `stale_marks` cho dữ liệu phụ thuộc cần chạy lại.
+- [ ] Phân biệt dữ liệu AI tạo, người dùng sửa, và projection sinh ra.
 
 ## API Nền Tảng
 
@@ -77,6 +80,9 @@
 - [x] `GET /api/projects/{project_id}/translation/jobs/{job_id}`.
 - [x] `POST /api/projects/{project_id}/translation/jobs/{job_id}/cancel`.
 - [x] Event endpoint cho job progress.
+- [ ] `PATCH` raw chapter text và trả về chapter/projection mới nhất.
+- [ ] `PATCH` entity, alias, relationship, glossary và translation segment.
+- [ ] Mutation ghi correction event và đánh dấu stale trong cùng transaction.
 - [ ] Request id middleware.
 - [ ] CORS policy cho web.
 

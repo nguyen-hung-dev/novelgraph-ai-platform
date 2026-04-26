@@ -6,6 +6,7 @@ This directory contains planning and architecture documents for NovelGraph AI Pl
 
 - [Implementation plan](implementation-plan.md)
 - [Product requirements](product-requirements.md)
+- [Agentic automation and inline editing](agentic-automation-and-inline-editing.md)
 - [Roadmap](../ROADMAP.md)
 - [Implementation checklists](checklists/README.md)
 - [Translation checklist](checklists/09-translation-parallel-checklist.md)

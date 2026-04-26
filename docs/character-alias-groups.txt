@@ -1,0 +1,256 @@
+Character Alias Extraction Groups
+
+Mục tiêu
+
+Giai đoạn đầu chỉ tập trung trích xuất mọi dữ liệu liên quan đến nhân vật trong một chương truyện. Hệ thống được phép cố định một số nhóm lớn ổn định để lưu DB và điều hướng UI. Các nhóm nhỏ, field cụ thể, tên hiển thị và giá trị chi tiết sẽ do AI tự nhận định từ raw text của chương.
+
+Nguyên tắc
+
+- Không hardcode các field nhỏ như "tên gọi khác", "tính cách", "chức vụ", "khả năng" trong code xử lý.
+- Prompt chỉ hướng dẫn AI tìm các thuộc tính liên quan đến từng nhóm lớn.
+- AI phải trả về field_key để lưu DB và field_label để hiển thị UI.
+- Mỗi giá trị cần có evidence từ chương hiện tại khi có thể.
+- Một field nhỏ chỉ được đặt dưới một nhóm lớn phù hợp nhất.
+- Nếu không chắc, AI đưa vào nhóm "Ghi nhận cần kiểm tra" thay vì tự khẳng định.
+
+Shape đề xuất cho một field nhỏ do AI trả về
+
+{
+  "field_key": "other_name",
+  "field_label": "Tên gọi khác",
+  "values": [
+    {
+      "value": "Anh ngốc",
+      "confidence": 0.86,
+      "evidence": []
+    }
+  ]
+}
+
+Nhóm lớn đề xuất
+
+Các nhóm lớn này là định danh cấp cao để DB và UI phân loại dữ liệu. Có thể hardcode `group_key` ổn định cho nhóm lớn, nhưng không hardcode danh sách field nhỏ bên trong. Field nhỏ do AI tự nhận định từ raw text, sau đó backend normalize trước khi ghi DB.
+
+1. Nhân Vật
+
+group_key: character
+group_label: Nhân Vật
+
+Mục đích: người hoặc thực thể có hành động, lời nói, ý chí, thân phận, quan hệ hoặc vai trò trong truyện.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên chính
+- Tên gọi khác
+- Biệt danh
+- Danh xưng
+- Thân phận
+- Tính cách
+- Chức vụ
+- Khả năng
+- Cảnh giới
+- Quan hệ với nhân vật khác
+
+2. Địa Điểm
+
+group_key: location
+group_label: Địa Điểm
+
+Mục đích: nơi chốn, khu vực, công trình, thế giới, lãnh thổ hoặc không gian được nhắc đến trong chương.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên địa điểm
+- Tên gọi khác
+- Loại địa điểm
+- Mô tả địa hình
+- Chủ sở hữu hoặc phe kiểm soát
+- Nhân vật xuất hiện tại đó
+- Sự kiện xảy ra tại đó
+
+3. Vật Phẩm
+
+group_key: item
+group_label: Vật Phẩm
+
+Mục đích: vật thể, trang bị, tài sản, đạo cụ, tài nguyên, bảo vật hoặc đồ vật có ý nghĩa trong chương.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên vật phẩm
+- Tên gọi khác
+- Loại vật phẩm
+- Công dụng
+- Chủ sở hữu
+- Trạng thái
+- Nguồn gốc
+- Giá trị hoặc độ hiếm
+
+4. Tổ Chức
+
+group_key: organization
+group_label: Tổ Chức
+
+Mục đích: nhóm người có cấu trúc, phe phái, môn phái, gia tộc, quốc gia, bang hội, công ty hoặc thế lực.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên tổ chức
+- Tên gọi khác
+- Loại tổ chức
+- Thành viên
+- Người đứng đầu
+- Phe đối lập
+- Địa bàn hoạt động
+- Mục tiêu
+
+5. Chủng Tộc Và Loài
+
+group_key: species
+group_label: Chủng Tộc Và Loài
+
+Mục đích: chủng tộc, giống loài, huyết mạch, sinh vật hoặc nhóm tồn tại có đặc điểm sinh học/siêu nhiên riêng.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên chủng tộc
+- Tên gọi khác
+- Đặc điểm
+- Năng lực bẩm sinh
+- Điểm yếu
+- Cá thể đại diện
+- Quan hệ với chủng tộc khác
+
+6. Năng Lực Và Kỹ Thuật
+
+group_key: ability
+group_label: Năng Lực Và Kỹ Thuật
+
+Mục đích: kỹ năng, công pháp, phép thuật, dị năng, chiêu thức, nghề nghiệp đặc biệt hoặc khả năng được nhắc đến.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên năng lực
+- Tên gọi khác
+- Loại năng lực
+- Người sử dụng
+- Hiệu quả
+- Giới hạn
+- Điều kiện kích hoạt
+- Cấp độ liên quan
+
+7. Sự Kiện
+
+group_key: event
+group_label: Sự Kiện
+
+Mục đích: hành động hoặc biến cố đáng lưu trong chương, có thể liên quan đến nhân vật, địa điểm, vật phẩm hoặc tổ chức.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên sự kiện nếu có
+- Loại sự kiện
+- Nhân vật tham gia
+- Địa điểm xảy ra
+- Nguyên nhân
+- Kết quả
+- Mốc thời gian
+- Bằng chứng trong chương
+
+8. Quan Hệ
+
+group_key: relationship
+group_label: Quan Hệ
+
+Mục đích: liên kết giữa hai hoặc nhiều thực thể, ví dụ người với người, người với tổ chức, vật phẩm với chủ sở hữu.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Chủ thể
+- Đối tượng
+- Loại quan hệ
+- Hướng quan hệ
+- Trạng thái quan hệ
+- Bằng chứng
+- Mức độ chắc chắn
+
+9. Khái Niệm Và Thuật Ngữ
+
+group_key: concept
+group_label: Khái Niệm Và Thuật Ngữ
+
+Mục đích: thuật ngữ thế giới quan, luật lệ, hệ thống tu luyện, khái niệm kỹ thuật, văn hóa, tôn giáo hoặc quy tắc đặc thù.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên thuật ngữ
+- Tên gọi khác
+- Định nghĩa
+- Phạm vi sử dụng
+- Thực thể liên quan
+- Ý nghĩa trong chương
+- Cách dịch gợi ý
+
+10. Thời Gian Và Mốc Truyện
+
+group_key: time_marker
+group_label: Thời Gian Và Mốc Truyện
+
+Mục đích: thời điểm, khoảng thời gian, thứ tự sự kiện, hồi tưởng, dự báo hoặc mốc lịch sử trong truyện.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Mốc thời gian
+- Loại mốc
+- Sự kiện liên quan
+- Nhân vật liên quan
+- Độ chính xác
+- Quan hệ trước sau với mốc khác
+
+11. Nhiệm Vụ Và Mục Tiêu
+
+group_key: objective
+group_label: Nhiệm Vụ Và Mục Tiêu
+
+Mục đích: mục tiêu, nhiệm vụ, lời hứa, yêu cầu, động cơ hoặc kế hoạch được nhân vật/tổ chức theo đuổi.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Tên hoặc mô tả mục tiêu
+- Người theo đuổi
+- Đối tượng bị tác động
+- Trạng thái
+- Lý do
+- Ràng buộc
+- Kết quả tạm thời
+
+12. Ghi Nhận Cần Kiểm Tra
+
+group_key: review_note
+group_label: Ghi Nhận Cần Kiểm Tra
+
+Mục đích: dữ liệu AI chưa đủ chắc, có thể là alias mơ hồ, suy luận thiếu bằng chứng, mâu thuẫn hoặc thông tin cần xác nhận sau.
+
+Ví dụ field nhỏ AI có thể trả về:
+- Nội dung nghi vấn
+- Loại nghi vấn
+- Thực thể liên quan
+- Lý do cần kiểm tra
+- Evidence hiện có
+- Đề xuất xử lý
+
+JSON tổng quát AI nên trả về
+
+{
+  "chapter_num": 1,
+  "records": [
+    {
+      "group_key": "character",
+      "group_label": "Nhân Vật",
+      "entity_key": "han_lap",
+      "display_name": "Hàn Lập",
+      "fields": [
+        {
+          "field_key": "other_name",
+          "field_label": "Tên gọi khác",
+          "values": [
+            {
+              "value": "Anh ngốc",
+              "confidence": 0.86,
+              "evidence": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
