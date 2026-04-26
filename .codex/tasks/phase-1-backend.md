@@ -46,4 +46,4 @@ Goal: create the first runnable Rust backend with storage foundations.
 - Migrations run against SQLite.
 - Job state transitions are covered by tests.
 - Schema design document is updated.
-- `CHANGELOG.md` and version metadata are updated for code, API, and schema changes.
+- `CHANGELOG.md` and version metadata are updated for release-worthy code, API, and schema milestones.

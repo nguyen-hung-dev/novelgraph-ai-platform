@@ -1,6 +1,6 @@
 # Development Guide
 
-The Rust backend foundation and the first SvelteKit workspace shell are scaffolded. Durable API wiring and AI workers are still in progress.
+The Rust backend foundation and the first live SvelteKit workspace wiring are scaffolded. Bookshelf, import preview/confirm, reading, and analysis screens now use real API data. Durable AI workers, realtime streaming, and review-item APIs are still in progress.
 
 ## Prerequisites
 
@@ -18,7 +18,22 @@ Local AI defaults:
 ```bash
 LLAMA_CPP_BASE_URL=http://127.0.0.1:8080
 LLAMA_CPP_DEFAULT_MODEL=qwen3
+LLAMA_CPP_SERVER_BIN=llama-server
 LLAMA_CPP_TIMEOUT_SECS=120
+```
+
+The Settings screen can now manage the local llama.cpp runtime:
+
+- pick an existing `.gguf` file from the local machine and run it in place
+- download supported preset models into the repo `models/` directory
+- start or stop `llama-server` for the selected model
+
+Runtime state is persisted at `data/local-llm-runtime.json`.
+
+On Windows, if `LLAMA_CPP_SERVER_BIN` is not set, the backend now prefers the bundled repo binary:
+
+```text
+tools/llama.cpp/llama-server.exe
 ```
 
 ## Intended Layout
@@ -68,6 +83,7 @@ curl -X POST http://127.0.0.1:3000/api/projects \
   -H "content-type: application/json" \
   -d "{\"name\":\"Demo\"}"
 curl http://127.0.0.1:3000/api/local-llm/health
+curl http://127.0.0.1:3000/api/local-llm/runtime
 ```
 
 Frontend commands now run from the repository root:
@@ -79,6 +95,12 @@ pnpm check:web
 pnpm lint:web
 pnpm test:web
 pnpm build:web
+```
+
+Full-stack dev command:
+
+```powershell
+pnpm dev:stack
 ```
 
 Windows full-stack launcher:
@@ -94,6 +116,7 @@ Launcher behavior:
 - Preferred ports: backend `3000`, frontend `5173`.
 - If a preferred port is already used by this repo's own dev process, the launcher stops that process tree and reuses the preferred port.
 - If a preferred port is used by a different process, the launcher searches for the next free port.
+- The launcher exports `API_BASE_URL`, `PUBLIC_API_BASE_URL`, and `VITE_API_BASE_URL` for the frontend process.
 - Child backend/frontend processes are attached to a Windows job object so they are terminated when the launcher process exits.
 
 Dry-run mode:

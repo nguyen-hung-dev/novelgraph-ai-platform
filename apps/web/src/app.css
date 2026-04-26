@@ -24,6 +24,28 @@
 	--rose: #dc867d;
 	--shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
 	--radius: 8px;
+	--reading-font-size: 15px;
+	--reading-line-height: 1.65;
+}
+
+:root[data-color-mode='light'] {
+	color-scheme: light;
+	--bg: #f3f5ef;
+	--bg-elevated: #f7f8f3;
+	--panel: rgba(255, 255, 255, 0.92);
+	--panel-strong: rgba(255, 255, 255, 0.98);
+	--panel-muted: rgba(252, 252, 248, 0.96);
+	--border: rgba(78, 96, 72, 0.14);
+	--border-strong: rgba(78, 96, 72, 0.22);
+	--text: #182119;
+	--text-muted: #4c5a4f;
+	--text-soft: #6b796f;
+	--accent: #4d9853;
+	--accent-strong: #2e6b33;
+	--teal: #1f8b90;
+	--amber: #b06f1f;
+	--rose: #b4554d;
+	--shadow: 0 18px 48px rgba(22, 31, 24, 0.08);
 }
 
 html,
@@ -33,12 +55,15 @@ body {
 	background:
 		radial-gradient(circle at top left, rgba(98, 199, 180, 0.08), transparent 26%),
 		radial-gradient(circle at top right, rgba(221, 176, 107, 0.08), transparent 22%),
-		linear-gradient(180deg, #111411 0%, #0d100d 100%);
+		linear-gradient(180deg, var(--bg) 0%, var(--bg-elevated) 100%);
 	color: var(--text);
 }
 
 body {
 	min-height: 100vh;
+	transition:
+		background-color 140ms ease,
+		color 140ms ease;
 }
 
 * {
@@ -73,8 +98,7 @@ button {
 	gap: 18px;
 	padding: 18px;
 	border-right: 1px solid var(--border);
-	background:
-		linear-gradient(180deg, rgba(18, 23, 18, 0.98), rgba(14, 17, 14, 0.96)), var(--bg-elevated);
+	background: var(--bg-elevated);
 }
 
 .brand-block {
@@ -222,7 +246,7 @@ button {
 	gap: 16px;
 	padding: 16px 24px;
 	border-bottom: 1px solid var(--border);
-	background: rgba(17, 20, 17, 0.84);
+	background: var(--panel-strong);
 	backdrop-filter: blur(20px);
 	position: sticky;
 	top: 0;
@@ -294,6 +318,43 @@ button {
 	border-radius: 8px;
 	background: rgba(255, 255, 255, 0.03);
 	color: var(--text);
+}
+
+.icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 38px;
+	height: 38px;
+	padding: 0;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.03);
+	color: var(--text-muted);
+}
+
+.icon-button:hover,
+.icon-button.is-active {
+	border-color: rgba(142, 207, 116, 0.28);
+	background: rgba(142, 207, 116, 0.1);
+	color: var(--text);
+}
+
+.icon-button--danger:hover,
+.icon-button--danger.is-active {
+	border-color: rgba(220, 134, 125, 0.34);
+	background: rgba(220, 134, 125, 0.12);
+	color: var(--rose);
+}
+
+.icon-toggle-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.02);
 }
 
 .toolbar-link,
@@ -553,6 +614,18 @@ button {
 	box-shadow: var(--shadow);
 }
 
+.project-card__header {
+	position: relative;
+}
+
+.project-card__actions {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	display: flex;
+	gap: 8px;
+}
+
 .card-cover {
 	aspect-ratio: 3 / 2;
 	border-radius: 8px;
@@ -671,8 +744,8 @@ button {
 .reading-copy {
 	display: grid;
 	gap: 14px;
-	font-size: 15px;
-	line-height: 1.65;
+	font-size: var(--reading-font-size);
+	line-height: var(--reading-line-height);
 }
 
 .reading-copy p {
@@ -738,6 +811,76 @@ button {
 	border: 1px dashed var(--border);
 	border-radius: 8px;
 	color: var(--text-muted);
+}
+
+.checkbox-row {
+	align-items: flex-start;
+}
+
+.checkbox-copy {
+	display: grid;
+	gap: 4px;
+}
+
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(6, 9, 7, 0.64);
+	backdrop-filter: blur(10px);
+	z-index: 40;
+}
+
+.modal-dialog {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: min(560px, calc(100vw - 32px));
+	max-height: calc(100vh - 40px);
+	overflow: auto;
+	padding: 18px;
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	background: var(--panel-strong);
+	box-shadow: var(--shadow);
+	z-index: 41;
+}
+
+.modal-dialog--compact {
+	width: min(520px, calc(100vw - 32px));
+}
+
+.modal-header,
+.modal-actions {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.modal-actions {
+	align-items: center;
+	justify-content: flex-end;
+}
+
+.range-field {
+	display: grid;
+	gap: 8px;
+}
+
+.range-field input[type='range'] {
+	width: 100%;
+	accent-color: var(--accent);
+}
+
+.range-value {
+	font-size: 14px;
+}
+
+.action-button--danger {
+	border-color: rgba(220, 134, 125, 0.38);
+	background: rgba(220, 134, 125, 0.14);
+	color: #ffd2cd;
 }
 
 @media (max-width: 1280px) {

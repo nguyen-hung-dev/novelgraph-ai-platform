@@ -1,57 +1,44 @@
 <script lang="ts">
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
-	import { reviewQueue } from '$lib/workspace/demo';
+	import { jobStatusTone } from '$lib/workspace/presenters';
+	import type { PageData } from './$types';
 
-	let selectedId = $state(reviewQueue[0].id);
-
-	const activeItem = $derived(reviewQueue.find((item) => item.id === selectedId) ?? reviewQueue[0]);
+	let { data }: { data: PageData } = $props();
 </script>
 
 <div class="page-grid">
-	<Panel subtitle="Uncertain facts stay reviewable" title="Review queue">
-		<div class="review-stack">
-			{#each reviewQueue as item (item.id)}
-				<button
-					class:is-active={selectedId === item.id}
-					class="review-row"
-					onclick={() => {
-						selectedId = item.id;
-					}}
-					type="button"
-				>
-					<div class="status-row">
-						<div class="nav-link__title">{item.title}</div>
-						<StatusPill label={item.chapter} />
-					</div>
-					<div class="nav-link__meta">{item.summary}</div>
-				</button>
-			{/each}
+	<Panel subtitle="Review API is not implemented yet" title="Review queue">
+		<div class="empty-note">
+			Hàng đợi review sẽ xuất hiện sau khi observation persistence, uncertain fact routing và review
+			item API được triển khai. Ở mốc hiện tại, UI này không còn dùng mock review queue cố định nữa.
 		</div>
 	</Panel>
 
-	<Panel subtitle="Decision detail" title={activeItem.title}>
+	<Panel subtitle="Current pipeline boundary" title="Readiness">
 		<div class="detail-list">
 			<div class="status-row">
-				<StatusPill label={activeItem.chapter} />
-				<StatusPill label="Needs operator judgment" tone={activeItem.severity} />
+				<StatusPill
+					label={data.workspace.latest_analysis_job?.status ?? 'No analysis job'}
+					tone={data.workspace.latest_analysis_job
+						? jobStatusTone(data.workspace.latest_analysis_job.status)
+						: 'warning'}
+				/>
+				<StatusPill label={data.workspace.active_novel ? 'Novel imported' : 'Import required'} />
 			</div>
 			<div class="callout-box">
-				<div class="nav-link__title">Summary</div>
-				<div class="nav-link__meta">{activeItem.summary}</div>
+				<div class="nav-link__title">What is missing</div>
+				<div class="nav-link__meta">
+					Need observation tables, evidence span persistence, review-item generation, and operator
+					decision endpoints.
+				</div>
 			</div>
-			<div class="evidence-card">
-				<div class="nav-link__title">Evidence</div>
-				<div class="nav-link__meta">“{activeItem.evidence}”</div>
-			</div>
-			<div class="warning-box">
-				<div class="nav-link__title">Recommended handling</div>
-				<div class="nav-link__meta">{activeItem.recommendation}</div>
-			</div>
-			<div class="table-actions">
-				<button class="action-button" type="button">Accept with evidence</button>
-				<button class="secondary-button" type="button">Keep unresolved</button>
-				<button class="secondary-button" type="button">Escalate to glossary review</button>
+			<div class="callout-box">
+				<div class="nav-link__title">What is already live</div>
+				<div class="nav-link__meta">
+					Project creation, import preview/confirm, chapter reading, aggregate workspace snapshot,
+					job status read, and cancel flow.
+				</div>
 			</div>
 		</div>
 	</Panel>

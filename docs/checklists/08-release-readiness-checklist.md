@@ -51,8 +51,8 @@
 
 ## Versioning
 
-- [ ] Chọn version.
+- [ ] Chọn version cho mốc release hoặc mốc tính năng lớn, không bump cho từng sửa nhỏ.
+- [ ] Đồng bộ `VERSION`, `Cargo.toml`, package manifests và metadata version trong code.
 - [ ] Tạo tag.
 - [ ] Tạo release notes.
 - [ ] Kiểm tra repo visibility trước khi công bố.
-

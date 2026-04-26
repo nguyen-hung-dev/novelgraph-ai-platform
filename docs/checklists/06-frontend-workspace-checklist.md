@@ -6,6 +6,7 @@
 - [x] Layout desktop-style.
 - [x] Sidebar project navigation.
 - [x] Top toolbar.
+- [x] Light, dark, and system color modes.
 - [x] Main content region.
 - [x] Split pane support.
 - [x] Responsive desktop-first behavior.
@@ -13,18 +14,20 @@
 ## Routes
 
 - [x] Projects/bookshelf.
+- [x] Project delete modal.
 - [x] Project overview.
 - [x] Import novel.
 - [x] Reading.
 - [x] Analysis progress.
-- [x] Review queue.
+- [x] Review route placeholder.
 - [x] Settings.
 - [x] BYOK settings.
+- [x] Local llama.cpp settings and model library.
 
 ## API Client
 
-- [ ] Typed client generated hoặc shared types.
-- [ ] Error handling.
+- [x] Typed client generated hoặc shared types.
+- [x] Error handling.
 - [ ] Request id display cho debug.
 - [ ] Auth/session handling.
 - [ ] Realtime event client.
@@ -47,7 +50,7 @@
 - [x] Drag and drop.
 - [x] Preview table.
 - [x] Chapter count.
-- [x] Split warnings.
+- [ ] Split warnings.
 - [x] Confirm import.
 
 ## Reading UI
@@ -55,14 +58,15 @@
 - [x] Chapter list.
 - [x] Chapter content.
 - [x] Search trong chapter.
+- [x] Cỡ chữ và dãn dòng.
 - [x] Entity highlight placeholder.
 - [x] Persist reading position.
 
 ## Analysis UI
 
-- [x] Start analysis.
+- [ ] Start analysis.
 - [x] Cancel analysis.
 - [x] Progress events.
 - [x] Current stage.
-- [x] Failed chapter list.
-- [x] Retry failed chapters.
+- [ ] Failed chapter list.
+- [ ] Retry failed chapters.

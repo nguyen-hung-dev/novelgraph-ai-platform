@@ -2,18 +2,20 @@
 
 ## Current Version
 
-- App version: `0.5.0`
+- App version: `0.8.0`
 - API version: `v0`
 - Release channel: `foundation`
-- Storage schema version: `2026-04-26.foundation.v2`
+- Storage schema version: `2026-04-27.foundation.v3`
 
 ## Required Files
 
-When code changes, always check these files:
+When preparing a planned release, a major milestone, or an explicit hotfix release, check these files:
 
 - `CHANGELOG.md`
 - `VERSION`
 - `Cargo.toml`
+- root `package.json`
+- app package manifests such as `apps/web/package.json`
 - `crates/core/src/version.rs`
 
 When user-facing documentation mentions the current version, also check:
@@ -26,8 +28,10 @@ When user-facing documentation mentions the current version, also check:
 
 ## Bump Policy
 
-- Patch version: bug fixes, internal refactors, test additions, and documentation that clarifies shipped behavior.
-- Minor version before 1.0: new endpoints, new storage tables, new domain models, new worker capabilities, new UI slices, or larger foundation milestones.
+- Do not bump the app version for every small bug fix, UI polish pass, dev-only adjustment, test-only change, or documentation clarification.
+- Batch small changes into `Unreleased` or the active milestone section until a planned release is prepared.
+- Patch version: explicit hotfix releases or release-worthy maintenance batches after a public version already exists.
+- Minor version before 1.0: new endpoints, new storage tables, new domain models, new worker capabilities, new UI slices, local runtime capabilities, or larger foundation milestones.
 - Major version: reserved for the future stable `1.0.0` line.
 
 Storage schema changes must update `STORAGE_SCHEMA_VERSION` in `crates/core/src/version.rs`.
@@ -49,4 +53,4 @@ Use this structure:
 ## [0.1.0] - YYYY-MM-DD
 ```
 
-Do not leave meaningful code changes undocumented.
+Do not create a new version section until release preparation, a major milestone, or an explicit hotfix. Keep changelog entries grouped by user-visible capability instead of listing every tiny implementation step.

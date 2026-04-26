@@ -2,7 +2,7 @@
 
 - [ ] README explains current status accurately.
 - [ ] `CHANGELOG.md` has a complete entry for the release version.
-- [ ] `VERSION`, `Cargo.toml`, and `crates/core/src/version.rs` agree.
+- [ ] `VERSION`, `Cargo.toml`, package manifests, and `crates/core/src/version.rs` agree.
 - [ ] `.env.example` is up to date.
 - [ ] CI passes.
 - [ ] No secrets, model files, databases, uploads, or exports are committed.

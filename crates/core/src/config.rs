@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, path::PathBuf};
 
 use crate::{AppError, AppResult};
 
@@ -39,6 +39,7 @@ pub struct AppConfig {
     pub sqlite_database_path: Option<String>,
     pub llama_cpp_base_url: String,
     pub llama_cpp_default_model: String,
+    pub llama_cpp_server_bin: String,
     pub llama_cpp_timeout_secs: u64,
 }
 
@@ -74,6 +75,8 @@ impl AppConfig {
                 .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string()),
             llama_cpp_default_model: env::var("LLAMA_CPP_DEFAULT_MODEL")
                 .unwrap_or_else(|_| "qwen3".to_string()),
+            llama_cpp_server_bin: env::var("LLAMA_CPP_SERVER_BIN")
+                .unwrap_or_else(|_| default_llama_cpp_server_bin()),
             llama_cpp_timeout_secs,
         })
     }
@@ -81,6 +84,22 @@ impl AppConfig {
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+}
+
+fn default_llama_cpp_server_bin() -> String {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let bundled_windows = repo_root
+        .join("tools")
+        .join("llama.cpp")
+        .join("llama-server.exe");
+
+    if bundled_windows.exists() {
+        return bundled_windows.to_string_lossy().into_owned();
+    }
+
+    "llama-server".to_string()
 }
 
 #[cfg(test)]

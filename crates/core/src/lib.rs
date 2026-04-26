@@ -7,8 +7,10 @@ pub mod version;
 
 pub use config::{AppConfig, AppMode};
 pub use domain::{
-    AnalysisJob, Chapter, ChapterPreview, CreateProjectInput, CreateTranslationJobInput,
-    ImportPreview, JobEvent, Novel, NovelImportInput, NovelImportResult, Project, SourceSegment,
+    ActivateManagedLocalModelInput, AnalysisJob, Chapter, ChapterPreview, CreateProjectInput,
+    CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult, ImportPreview, JobEvent,
+    LocalLlmDownloadState, LocalLlmModelSelection, LocalLlmPreset, LocalLlmRuntimeSnapshot, Novel,
+    NovelImportInput, NovelImportResult, Project, ProjectWorkspaceSnapshot, SourceSegment,
     TranslationJob,
 };
 pub use error::{AppError, AppResult};

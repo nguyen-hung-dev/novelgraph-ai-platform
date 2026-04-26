@@ -11,12 +11,13 @@
 
 ## Changelog and Versioning
 
-- Every code change must update `CHANGELOG.md`.
-- Documentation-only changes may skip a version bump, but should still update `CHANGELOG.md` when they change project behavior, setup, security posture, or release notes.
-- Public API changes, storage schema changes, migrations, breaking behavior, release behavior, and user-visible behavior changes must also review version metadata.
+- Feature milestones, release preparation, public API changes, storage schema changes, migrations, breaking behavior, release behavior, and meaningful user-visible behavior must update `CHANGELOG.md`.
+- Small bug fixes, UI polish, dev-only adjustments, test-only changes, and documentation clarifications should be batched into the active milestone or `Unreleased`; do not create a new version section for each small change.
+- Version metadata changes only when preparing a planned release, a major milestone, or an explicit hotfix release.
 - Keep these version locations aligned when a version changes:
   - `VERSION`
   - workspace package `version` in `Cargo.toml`
+  - root and app `package.json` versions
   - `crates/core/src/version.rs`
   - `README.md` and `README.vi.md` current version text
 - `/health` must expose the app version and relevant API/storage schema version metadata.

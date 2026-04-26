@@ -39,6 +39,7 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] Local LLM health endpoint.
 - [x] Local LLM model listing endpoint.
 - [x] Local LLM chat completion endpoint.
+- [x] Local model picker and preset download manager.
 - [ ] Session-only BYOK.
 - [ ] Masked key display.
 - [ ] Usage accounting.
@@ -76,7 +77,18 @@ This roadmap is intentionally foundation-first. The project should not rush into
 
 - [x] SvelteKit shell.
 - [x] Project/bookshelf view.
+- [x] Typed API client and aggregate workspace snapshot wiring.
+- [x] Project create action.
+- [x] Project archive or purge action.
+- [x] Import preview/confirm wiring.
 - [x] Reading view.
+- [x] Reading font size and line-height settings.
 - [x] Analysis progress view.
+- [x] Analysis cancel action.
 - [x] BYOK settings view.
-- [x] Review queue view.
+- [x] Local llama.cpp settings view.
+- [x] Light, dark, and system color modes.
+- [x] Review route placeholder.
+- [ ] App theme presets beyond color mode.
+- [ ] Realtime event streaming client.
+- [ ] Review-item API integration.

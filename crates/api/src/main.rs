@@ -31,8 +31,9 @@ async fn main() -> anyhow::Result<()> {
         default_model: config.llama_cpp_default_model.clone(),
         timeout_secs: config.llama_cpp_timeout_secs,
     })?;
+    let local_runtime = novelgraph_api::local_runtime::LocalLlmRuntimeManager::new(&config).await?;
     let bind_addr = config.bind_addr();
-    let router = build_router(config, store, local_llm);
+    let router = build_router(config, store, local_llm, local_runtime);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("failed to bind {bind_addr}"))?;

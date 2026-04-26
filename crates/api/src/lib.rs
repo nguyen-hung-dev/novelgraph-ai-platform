@@ -5,14 +5,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+pub mod local_runtime;
+use local_runtime::{LocalLlmRuntimeManager, LocalRuntimeError};
 use novelgraph_ai::{
     AiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, LlamaCppClient, LlmRole,
     LocalLlmHealth, ModelListResponse,
 };
 use novelgraph_core::{
-    build_draft_extraction_prompt, build_import_preview, AppConfig, CreateProjectInput,
-    CreateTranslationJobInput, DraftExtractionInput, DraftExtractionPrompt, NovelImportInput,
-    API_VERSION, APP_VERSION, STORAGE_SCHEMA_VERSION,
+    build_draft_extraction_prompt, build_import_preview, ActivateManagedLocalModelInput, AppConfig,
+    CreateProjectInput, CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult,
+    DraftExtractionInput, DraftExtractionPrompt, LocalLlmRuntimeSnapshot, NovelImportInput,
+    ProjectWorkspaceSnapshot, API_VERSION, APP_VERSION, STORAGE_SCHEMA_VERSION,
 };
 use novelgraph_storage::{SqliteStore, StorageError};
 use serde::Serialize;
@@ -23,19 +26,44 @@ pub struct AppState {
     pub config: AppConfig,
     pub store: SqliteStore,
     pub local_llm: LlamaCppClient,
+    pub local_runtime: LocalLlmRuntimeManager,
 }
 
-pub fn build_router(config: AppConfig, store: SqliteStore, local_llm: LlamaCppClient) -> Router {
+pub fn build_router(
+    config: AppConfig,
+    store: SqliteStore,
+    local_llm: LlamaCppClient,
+    local_runtime: LocalLlmRuntimeManager,
+) -> Router {
     let state = AppState {
         config,
         store,
         local_llm,
+        local_runtime,
     };
 
     Router::new()
         .route("/health", get(health))
         .route("/api/local-llm/health", get(local_llm_health))
         .route("/api/local-llm/models", get(local_llm_models))
+        .route("/api/local-llm/runtime", get(local_llm_runtime))
+        .route(
+            "/api/local-llm/runtime/select-existing",
+            post(local_llm_select_existing_model),
+        )
+        .route(
+            "/api/local-llm/runtime/start-selected",
+            post(local_llm_start_selected_model),
+        )
+        .route("/api/local-llm/runtime/stop", post(local_llm_stop_server))
+        .route(
+            "/api/local-llm/runtime/models/activate",
+            post(local_llm_activate_managed_model),
+        )
+        .route(
+            "/api/local-llm/runtime/presets/{preset_id}/download",
+            post(local_llm_download_preset),
+        )
         .route(
             "/api/local-llm/chat/completions",
             post(local_llm_chat_completion),
@@ -45,7 +73,16 @@ pub fn build_router(config: AppConfig, store: SqliteStore, local_llm: LlamaCppCl
             post(local_llm_draft_chapter_extraction),
         )
         .route("/api/projects", get(list_projects).post(create_project))
-        .route("/api/projects/{project_id}", get(get_project))
+        .route("/api/projects/archived", get(list_archived_projects))
+        .route(
+            "/api/projects/{project_id}",
+            get(get_project).post(delete_project),
+        )
+        .route("/api/projects/{project_id}/restore", post(restore_project))
+        .route(
+            "/api/projects/{project_id}/workspace",
+            get(get_project_workspace),
+        )
         .route(
             "/api/projects/{project_id}/novels/import/preview",
             post(preview_novel_import),
@@ -119,6 +156,54 @@ async fn local_llm_models(
     Ok(Json(state.local_llm.list_models().await?))
 }
 
+async fn local_llm_runtime(
+    State(state): State<AppState>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(state.local_runtime.snapshot().await))
+}
+
+async fn local_llm_select_existing_model(
+    State(state): State<AppState>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(state.local_runtime.pick_existing_model().await?))
+}
+
+async fn local_llm_start_selected_model(
+    State(state): State<AppState>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(state.local_runtime.start_selected_model().await?))
+}
+
+async fn local_llm_stop_server(
+    State(state): State<AppState>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(state.local_runtime.stop_server().await?))
+}
+
+async fn local_llm_activate_managed_model(
+    State(state): State<AppState>,
+    Json(input): Json<ActivateManagedLocalModelInput>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(
+        state
+            .local_runtime
+            .activate_managed_model(&input.path)
+            .await?,
+    ))
+}
+
+async fn local_llm_download_preset(
+    State(state): State<AppState>,
+    Path(preset_id): Path<String>,
+) -> Result<Json<LocalLlmRuntimeSnapshot>, ApiError> {
+    Ok(Json(
+        state
+            .local_runtime
+            .download_or_activate_preset(&preset_id)
+            .await?,
+    ))
+}
+
 async fn local_llm_chat_completion(
     State(state): State<AppState>,
     Json(input): Json<ChatCompletionRequest>,
@@ -176,6 +261,12 @@ async fn create_project(
     Ok(Json(state.store.create_project(&input.name).await?))
 }
 
+async fn list_archived_projects(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<novelgraph_core::Project>>, ApiError> {
+    Ok(Json(state.store.list_archived_projects().await?))
+}
+
 async fn get_project(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
@@ -187,6 +278,65 @@ async fn get_project(
         .ok_or(ApiError::not_found("project"))?;
 
     Ok(Json(project))
+}
+
+async fn delete_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    Json(input): Json<DeleteProjectInput>,
+) -> Result<Json<DeleteProjectResult>, ApiError> {
+    Ok(Json(
+        state
+            .store
+            .delete_project(&project_id, input.purge_data)
+            .await?,
+    ))
+}
+
+async fn restore_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Result<Json<novelgraph_core::Project>, ApiError> {
+    Ok(Json(state.store.restore_project(&project_id).await?))
+}
+
+async fn get_project_workspace(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Result<Json<ProjectWorkspaceSnapshot>, ApiError> {
+    let project = state
+        .store
+        .get_project(&project_id)
+        .await?
+        .ok_or(ApiError::not_found("project"))?;
+    let novels = state.store.list_novels(&project_id).await?;
+    let active_novel = novels.first().cloned();
+    let chapters = match &active_novel {
+        Some(novel) => state.store.list_chapters(&project_id, &novel.id).await?,
+        None => Vec::new(),
+    };
+    let latest_analysis_job = match &active_novel {
+        Some(novel) => {
+            state
+                .store
+                .get_latest_analysis_job_for_novel(&project_id, &novel.id)
+                .await?
+        }
+        None => None,
+    };
+    let latest_job_events = match &latest_analysis_job {
+        Some(job) => state.store.list_job_events(&project_id, &job.id).await?,
+        None => Vec::new(),
+    };
+
+    Ok(Json(ProjectWorkspaceSnapshot {
+        project,
+        novels,
+        active_novel,
+        chapters,
+        latest_analysis_job,
+        latest_job_events,
+    }))
 }
 
 async fn preview_novel_import(
@@ -374,6 +524,34 @@ impl From<AiError> for ApiError {
                 status: StatusCode::BAD_GATEWAY,
                 code: "local_llm_http_error",
                 message: format!("local LLM returned HTTP {status}: {message}"),
+            },
+        }
+    }
+}
+
+impl From<LocalRuntimeError> for ApiError {
+    fn from(error: LocalRuntimeError) -> Self {
+        match error {
+            LocalRuntimeError::SelectionCancelled
+            | LocalRuntimeError::UnknownPreset(_)
+            | LocalRuntimeError::MissingModel(_)
+            | LocalRuntimeError::ManagedModelOutsideRepo => Self::bad_request(error.to_string()),
+            LocalRuntimeError::DownloadAlreadyRunning => Self {
+                status: StatusCode::CONFLICT,
+                code: "local_llm_download_busy",
+                message: error.to_string(),
+            },
+            LocalRuntimeError::InvalidBaseUrl(_) | LocalRuntimeError::StartFailed(_) => Self {
+                status: StatusCode::FAILED_DEPENDENCY,
+                code: "local_llm_runtime_unavailable",
+                message: error.to_string(),
+            },
+            LocalRuntimeError::Io(_)
+            | LocalRuntimeError::Request(_)
+            | LocalRuntimeError::Serde(_) => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "local_llm_runtime_error",
+                message: error.to_string(),
             },
         }
     }

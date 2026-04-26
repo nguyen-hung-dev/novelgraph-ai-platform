@@ -67,11 +67,11 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 ## Phase 6 - Minimal Workspace UI
 
 - SvelteKit shell with sidebar and project routes.
-- Settings page for BYOK.
+- Settings page for local llama.cpp runtime and BYOK.
 - Upload/import page.
 - Analysis progress page.
 - Reading page with chapter navigation.
-- Current slice: mock-backed workspace shell ready for typed API wiring.
+- Current slice: typed API wiring is live for bookshelf, import, reading, analysis, and local LLM settings; bookshelf delete modes, local model picker/preset downloads, and reading typography controls are also live; review remains placeholder-only until observation APIs exist.
 
 ## Early Non-Goals
 

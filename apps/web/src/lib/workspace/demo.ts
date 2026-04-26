@@ -125,15 +125,16 @@ export const dashboardMetrics = [
 	},
 	{
 		label: 'Current mode',
-		value: '0.5.0',
-		detail: 'Foundation UI slice with mock workflow state',
+		value: '0.7.0',
+		detail:
+			'Workspace retention, color-mode controls, and reading typography settings on top of live API wiring',
 		tone: 'rose'
 	}
 ] as const;
 
 export const runtimeBadges = [
 	{ label: 'API v0', tone: 'teal' as Tone },
-	{ label: 'Schema v2', tone: 'good' as Tone },
+	{ label: 'Schema v3', tone: 'good' as Tone },
 	{ label: 'Local-first', tone: 'warning' as Tone }
 ];
 

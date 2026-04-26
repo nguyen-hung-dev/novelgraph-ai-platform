@@ -52,6 +52,7 @@ src-tauri/binaries/
 
 # AI models and vector stores
 models/
+tools/llama.cpp/
 *.gguf
 *.safetensors
 *.pt

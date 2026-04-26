@@ -99,6 +99,18 @@ pub struct CreateProjectInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct DeleteProjectInput {
+    pub purge_data: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeleteProjectResult {
+    pub project_id: String,
+    pub action: String,
+    pub data_retained: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CreateTranslationJobInput {
     pub novel_id: String,
     pub source_language: Option<String>,
@@ -139,4 +151,69 @@ pub struct NovelImportResult {
     pub chapters: Vec<Chapter>,
     pub source_segment_count: usize,
     pub analysis_job: AnalysisJob,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectWorkspaceSnapshot {
+    pub project: Project,
+    pub novels: Vec<Novel>,
+    pub active_novel: Option<Novel>,
+    pub chapters: Vec<Chapter>,
+    pub latest_analysis_job: Option<AnalysisJob>,
+    pub latest_job_events: Vec<JobEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalLlmModelSelection {
+    pub source_kind: String,
+    pub display_name: String,
+    pub path: String,
+    pub preset_id: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalLlmPreset {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub filename: String,
+    pub size_label: String,
+    pub source_url: String,
+    pub installed: bool,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalLlmDownloadState {
+    pub preset_id: String,
+    pub preset_name: String,
+    pub filename: String,
+    pub target_path: String,
+    pub status: String,
+    pub bytes_downloaded: u64,
+    pub total_bytes: Option<u64>,
+    pub auto_activate: bool,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalLlmRuntimeSnapshot {
+    pub base_url: String,
+    pub default_model_alias: String,
+    pub server_binary: String,
+    pub models_dir: String,
+    pub server_running: bool,
+    pub server_pid: Option<u32>,
+    pub selected_model: Option<LocalLlmModelSelection>,
+    pub downloaded_models: Vec<LocalLlmModelSelection>,
+    pub presets: Vec<LocalLlmPreset>,
+    pub active_download: Option<LocalLlmDownloadState>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ActivateManagedLocalModelInput {
+    pub path: String,
 }

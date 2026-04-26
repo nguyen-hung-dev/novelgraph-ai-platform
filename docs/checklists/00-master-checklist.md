@@ -63,7 +63,7 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [x] Reading view.
 - [x] Analysis progress.
 - [x] BYOK settings.
-- [x] Review queue.
+- [x] Review route placeholder.
 - [ ] Reading song ngữ source/target.
 
 ## Tầng 6 - Release

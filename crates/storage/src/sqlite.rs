@@ -2,7 +2,8 @@ use std::{path::Path, str::FromStr};
 
 use novelgraph_core::{
     split_chapters, split_source_segments, AnalysisJob, Chapter, CreateTranslationJobInput,
-    JobEvent, Novel, NovelImportInput, NovelImportResult, Project, TranslationJob,
+    DeleteProjectResult, JobEvent, Novel, NovelImportInput, NovelImportResult, Project,
+    TranslationJob,
 };
 use novelgraph_jobs::{cancel_event_type, validate_transition, JobKind, JobStatus};
 use serde_json::json;
@@ -86,7 +87,23 @@ impl SqliteStore {
         let rows = sqlx::query(
             "SELECT id, workspace_id, name, visibility, created_at, updated_at
              FROM projects
+             WHERE deleted_at IS NULL
              ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(project_from_row).collect())
+    }
+
+    pub async fn list_archived_projects(&self) -> StorageResult<Vec<Project>> {
+        self.ensure_local_workspace().await?;
+
+        let rows = sqlx::query(
+            "SELECT id, workspace_id, name, visibility, created_at, updated_at
+             FROM projects
+             WHERE deleted_at IS NOT NULL
+             ORDER BY updated_at DESC, created_at DESC, id DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -98,13 +115,101 @@ impl SqliteStore {
         let row = sqlx::query(
             "SELECT id, workspace_id, name, visibility, created_at, updated_at
              FROM projects
-             WHERE id = ?",
+             WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(project_id)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(project_from_row))
+    }
+
+    pub async fn delete_project(
+        &self,
+        project_id: &str,
+        purge_data: bool,
+    ) -> StorageResult<DeleteProjectResult> {
+        let existing = self
+            .get_project_including_deleted(project_id)
+            .await?
+            .ok_or(StorageError::NotFound("project"))?;
+
+        if existing.deleted_at.is_some() {
+            if purge_data {
+                sqlx::query("DELETE FROM projects WHERE id = ?")
+                    .bind(project_id)
+                    .execute(&self.pool)
+                    .await?;
+
+                return Ok(DeleteProjectResult {
+                    project_id: project_id.to_string(),
+                    action: "purged".to_string(),
+                    data_retained: false,
+                });
+            }
+
+            return Err(StorageError::InvalidInput(
+                "project is already archived".to_string(),
+            ));
+        }
+
+        if purge_data {
+            sqlx::query("DELETE FROM projects WHERE id = ?")
+                .bind(project_id)
+                .execute(&self.pool)
+                .await?;
+
+            return Ok(DeleteProjectResult {
+                project_id: project_id.to_string(),
+                action: "purged".to_string(),
+                data_retained: false,
+            });
+        }
+
+        sqlx::query(
+            "UPDATE projects
+             SET deleted_at = CURRENT_TIMESTAMP,
+                 visibility = 'archived',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?",
+        )
+        .bind(project_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(DeleteProjectResult {
+            project_id: project_id.to_string(),
+            action: "archived".to_string(),
+            data_retained: true,
+        })
+    }
+
+    pub async fn restore_project(&self, project_id: &str) -> StorageResult<Project> {
+        let existing = self
+            .get_project_including_deleted(project_id)
+            .await?
+            .ok_or(StorageError::NotFound("project"))?;
+
+        if existing.deleted_at.is_none() {
+            return Err(StorageError::InvalidInput(
+                "project is not archived".to_string(),
+            ));
+        }
+
+        sqlx::query(
+            "UPDATE projects
+             SET deleted_at = NULL,
+                 visibility = 'private',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?",
+        )
+        .bind(project_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_project(project_id)
+            .await?
+            .ok_or(StorageError::NotFound("project"))
     }
 
     pub async fn import_novel(
@@ -263,6 +368,22 @@ impl SqliteStore {
         Ok(row.map(novel_from_row))
     }
 
+    pub async fn list_novels(&self, project_id: &str) -> StorageResult<Vec<Novel>> {
+        self.require_project(project_id).await?;
+
+        let rows = sqlx::query(
+            "SELECT id, project_id, title, author, source_language, created_at, updated_at
+             FROM novels
+             WHERE project_id = ?
+             ORDER BY updated_at DESC, created_at DESC, id DESC",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(novel_from_row).collect())
+    }
+
     pub async fn list_chapters(
         &self,
         project_id: &str,
@@ -281,6 +402,29 @@ impl SqliteStore {
         .await?;
 
         Ok(rows.into_iter().map(chapter_from_row).collect())
+    }
+
+    pub async fn get_latest_analysis_job_for_novel(
+        &self,
+        project_id: &str,
+        novel_id: &str,
+    ) -> StorageResult<Option<AnalysisJob>> {
+        self.require_novel(project_id, novel_id).await?;
+
+        let row = sqlx::query(
+            "SELECT id, project_id, novel_id, job_type, status, payload_json,
+                    started_at, finished_at, error_code, error_message, created_at, updated_at
+             FROM analysis_jobs
+             WHERE project_id = ? AND novel_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(project_id)
+        .bind(novel_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(analysis_job_from_row))
     }
 
     pub async fn create_translation_job(
@@ -564,10 +708,11 @@ impl SqliteStore {
     }
 
     async fn require_project(&self, project_id: &str) -> StorageResult<()> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM projects WHERE id = ?")
-            .bind(project_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(1) FROM projects WHERE id = ? AND deleted_at IS NULL")
+                .bind(project_id)
+                .fetch_one(&self.pool)
+                .await?;
 
         if count == 0 {
             return Err(StorageError::NotFound("project"));
@@ -582,6 +727,22 @@ impl SqliteStore {
         }
 
         Ok(())
+    }
+
+    async fn get_project_including_deleted(
+        &self,
+        project_id: &str,
+    ) -> StorageResult<Option<ProjectRow>> {
+        let row = sqlx::query(
+            "SELECT id, workspace_id, name, visibility, created_at, updated_at, deleted_at
+             FROM projects
+             WHERE id = ?",
+        )
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(project_row_from_row))
     }
 }
 
@@ -650,6 +811,17 @@ fn project_from_row(row: SqliteRow) -> Project {
         visibility: row.get("visibility"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+#[derive(Debug)]
+struct ProjectRow {
+    deleted_at: Option<String>,
+}
+
+fn project_row_from_row(row: SqliteRow) -> ProjectRow {
+    ProjectRow {
+        deleted_at: row.get("deleted_at"),
     }
 }
 
@@ -759,6 +931,15 @@ mod tests {
         assert_eq!(import.chapters.len(), 2);
         assert_eq!(import.source_segment_count, 2);
         assert_eq!(import.analysis_job.status, "pending");
+        let novels = store.list_novels(&project.id).await.unwrap();
+        assert_eq!(novels.len(), 1);
+        assert_eq!(novels[0].title, "Truyện Thử");
+        let latest_analysis_job = store
+            .get_latest_analysis_job_for_novel(&project.id, &import.novel.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest_analysis_job.id, import.analysis_job.id);
         let analysis_events = store
             .list_job_events(&project.id, &import.analysis_job.id)
             .await
@@ -776,7 +957,7 @@ mod tests {
             .create_translation_job(
                 &project.id,
                 CreateTranslationJobInput {
-                    novel_id: import.novel.id,
+                    novel_id: import.novel.id.clone(),
                     source_language: None,
                     target_language: "vi".to_string(),
                     provider: Some("openai".to_string()),
@@ -811,5 +992,58 @@ mod tests {
             translation_events[1].event_type,
             "translation_job_cancelled"
         );
+
+        let archived_project = store.delete_project(&project.id, false).await.unwrap();
+        assert_eq!(archived_project.action, "archived");
+        assert!(archived_project.data_retained);
+        assert!(store.get_project(&project.id).await.unwrap().is_none());
+        let archived_projects = store.list_archived_projects().await.unwrap();
+        assert_eq!(archived_projects.len(), 1);
+        assert_eq!(archived_projects[0].id, project.id);
+
+        let retained_novel = store
+            .get_novel(&project.id, &import.novel.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained_novel.id, import.novel.id);
+        let restored_project = store.restore_project(&project.id).await.unwrap();
+        assert_eq!(restored_project.id, project.id);
+        assert!(store.list_archived_projects().await.unwrap().is_empty());
+        let re_archived_project = store.delete_project(&project.id, false).await.unwrap();
+        assert_eq!(re_archived_project.action, "archived");
+        let purged_archived_project = store.delete_project(&project.id, true).await.unwrap();
+        assert_eq!(purged_archived_project.action, "purged");
+        assert!(store.get_project(&project.id).await.unwrap().is_none());
+
+        let hard_delete_project = store.create_project("Hard Delete Project").await.unwrap();
+        let second_import = store
+            .import_novel(
+                &hard_delete_project.id,
+                NovelImportInput {
+                    title: "Truyện Xóa".to_string(),
+                    author: None,
+                    source_language: Some("vi".to_string()),
+                    text: "Chương 1\nDữ liệu xóa.".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        let purged_project = store
+            .delete_project(&hard_delete_project.id, true)
+            .await
+            .unwrap();
+        assert_eq!(purged_project.action, "purged");
+        assert!(!purged_project.data_retained);
+        assert!(store
+            .get_project(&hard_delete_project.id)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_novel(&hard_delete_project.id, &second_import.novel.id)
+            .await
+            .unwrap()
+            .is_none());
     }
 }

@@ -22,10 +22,10 @@
 
 - [ ] Chọn binary strategy.
 - [ ] Detect platform.
-- [ ] Start sidecar.
-- [ ] Stop sidecar.
-- [ ] Health check.
-- [ ] Model path config.
+- [x] Start sidecar.
+- [x] Stop sidecar.
+- [x] Health check.
+- [x] Model path config.
 - [ ] Context window config.
 - [ ] GPU backend config.
 
@@ -50,4 +50,3 @@
 - [ ] Không log key.
 - [ ] Local database path rõ ràng.
 - [ ] Export không tự động chứa secret config.
-

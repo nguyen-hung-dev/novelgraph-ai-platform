@@ -21,15 +21,17 @@ Build a hybrid web/desktop AI novel analysis platform:
 - Desktop: Tauri app with local storage and local AI.
 - Shared UI: dense desktop-style workspace.
 - Core pipeline: evidence-first extraction and reviewable projections.
-- Change hygiene: every code change must account for changelog and version metadata.
+- Change hygiene: meaningful feature milestones and release boundaries must account for changelog and version metadata.
 
 ## Current Priority
 
 Foundation slices in progress:
 
-- Keep `CHANGELOG.md`, `VERSION`, workspace `Cargo.toml`, and `crates/core/src/version.rs` aligned when behavior changes.
+- Keep `CHANGELOG.md`, `VERSION`, package manifests, workspace `Cargo.toml`, and `crates/core/src/version.rs` aligned when a planned release or major milestone changes version.
 - Continue durable job orchestration before adding broad provider execution.
 - Prioritize local llama.cpp execution before hosted BYOK provider execution.
-- Grow the SvelteKit workspace shell with typed API wiring, request tracing, and reusable split-pane components.
+- Keep the local llama.cpp settings flow usable: existing GGUF files run in place, preset models download into repo `models/`, and `llama-server` control stays API-backed.
+- Keep the SvelteKit workspace shell on the typed API path that now powers bookshelf, import, reading, and analysis screens.
+- Prefer aggregate workspace reads first, then add realtime events and reusable split-pane components on top.
 - Keep the web shell visually aligned with the future desktop shell.
 - Do not start complex graph/map/timeline rendering yet.

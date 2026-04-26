@@ -431,6 +431,8 @@ try {
         RUST_LOG     = "novelgraph_api=info,tower_http=info"
     }
     $frontendEnv = @{
+        API_BASE_URL      = $backendUrl
+        PUBLIC_API_BASE_URL = $backendUrl
         VITE_API_BASE_URL = $backendUrl
     }
 

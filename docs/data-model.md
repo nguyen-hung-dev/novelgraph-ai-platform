@@ -19,6 +19,12 @@ projects
 project_shares
 ```
 
+Current implementation:
+
+- `projects` now supports `deleted_at` for retention-aware archive behavior.
+- Archived projects are hidden from the bookshelf and normal project reads.
+- Hard deletion still cascades to novels, chapters, segments, jobs, and related records.
+
 ## Novel Source
 
 ```text
