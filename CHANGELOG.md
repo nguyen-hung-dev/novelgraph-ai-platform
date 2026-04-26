@@ -8,6 +8,39 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.3.0] - 2026-04-26
+
+### Added
+
+- Added `crates/ai` with local-first llama.cpp client support.
+- Added OpenAI-compatible local chat completion request and response types.
+- Added local LLM health, model listing, and chat completion endpoints.
+- Added local LLM config fields for base URL, default model, and timeout.
+- Added unit tests for local llama.cpp URL/config validation and OpenAI-compatible JSON shapes.
+
+### Changed
+
+- Updated app version metadata to `0.3.0`.
+- Prioritized local llama.cpp integration before cloud BYOK provider execution.
+- Kept storage schema version at `2026-04-26.foundation.v2` because no database schema changes were added for local LLM.
+
+## [0.2.0] - 2026-04-26
+
+### Added
+
+- Added `crates/jobs` with job kind/status types and explicit state transition validation.
+- Added SQLite and PostgreSQL `0002_job_state` migrations for job lifecycle timestamps and safe error fields.
+- Added analysis job read and cancel APIs.
+- Added translation job read and cancel APIs.
+- Added persisted cancellation events for analysis and translation jobs.
+- Added tests for job state transitions and job cancellation persistence.
+
+### Changed
+
+- Updated app version metadata to `0.2.0`.
+- Updated storage schema version to `2026-04-26.foundation.v2`.
+- Extended analysis and translation job response models with `started_at`, `finished_at`, `error_code`, and `error_message`.
+
 ## [0.1.1] - 2026-04-26
 
 ### Added

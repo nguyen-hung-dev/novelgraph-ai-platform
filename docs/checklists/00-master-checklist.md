@@ -16,8 +16,8 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [x] Scaffold Rust workspace.
   - [x] Tạo crate `core`.
   - [x] Tạo crate `storage`.
-  - [ ] Tạo crate `ai`.
-  - [ ] Tạo crate `jobs`.
+  - [x] Tạo crate `ai`.
+  - [x] Tạo crate `jobs`.
   - [x] Tạo crate `api`.
 - [ ] Scaffold SvelteKit app.
   - [ ] Tạo `apps/web`.
@@ -53,7 +53,7 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [ ] Chốt observation model.
 - [ ] Chốt glossary model.
 - [ ] Chốt review item model.
-- [ ] Chốt job event model.
+- [x] Chốt job event model.
 - [ ] Chốt regression fixture strategy.
 
 ## Tầng 5 - MVP UI

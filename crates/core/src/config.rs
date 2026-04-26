@@ -37,6 +37,9 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: Option<String>,
     pub sqlite_database_path: Option<String>,
+    pub llama_cpp_base_url: String,
+    pub llama_cpp_default_model: String,
+    pub llama_cpp_timeout_secs: u64,
 }
 
 impl AppConfig {
@@ -54,6 +57,12 @@ impl AppConfig {
                 .is_none()
                 .then(|| "data/novelgraph.sqlite3".to_string())
         });
+        let llama_cpp_timeout_secs = env::var("LLAMA_CPP_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "120".to_string())
+            .parse::<u64>()
+            .map_err(|err| {
+                AppError::InvalidConfig(format!("invalid LLAMA_CPP_TIMEOUT_SECS: {err}"))
+            })?;
 
         Ok(Self {
             mode,
@@ -61,6 +70,11 @@ impl AppConfig {
             port,
             database_url,
             sqlite_database_path,
+            llama_cpp_base_url: env::var("LLAMA_CPP_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string()),
+            llama_cpp_default_model: env::var("LLAMA_CPP_DEFAULT_MODEL")
+                .unwrap_or_else(|_| "qwen3".to_string()),
+            llama_cpp_timeout_secs,
         })
     }
 

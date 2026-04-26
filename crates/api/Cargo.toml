@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+novelgraph-ai = { path = "../ai" }
 novelgraph-core = { path = "../core" }
 novelgraph-storage = { path = "../storage" }
 anyhow.workspace = true

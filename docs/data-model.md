@@ -1,6 +1,6 @@
 # Data Model
 
-This document sketches the target logical data model. The first SQLite/PostgreSQL migration now implements the foundation identity, project, novel source, analysis job, job event, translation job, glossary, and usage tables.
+This document sketches the target logical data model. The SQLite/PostgreSQL migrations now implement the foundation identity, project, novel source, analysis job, job event, translation job, glossary, usage, and job lifecycle fields.
 
 ## Principles
 
@@ -48,6 +48,8 @@ Current implementation:
 
 - `analysis_jobs` stores pending analysis jobs created by import confirmation.
 - `job_events` stores sequenced events for both analysis and translation jobs.
+- `analysis_jobs` and `translation_jobs` expose `started_at`, `finished_at`, `error_code`, and `error_message`.
+- Job state transitions are validated in `crates/jobs`.
 
 ## Evidence and Observations
 

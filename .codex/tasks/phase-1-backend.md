@@ -12,6 +12,8 @@ Goal: create the first runnable Rust backend with storage foundations.
 - PostgreSQL-ready migrations.
 - Typed error response.
 - Basic job event schema.
+- Basic job state machine.
+- Read and cancel endpoints for analysis and translation jobs.
 
 ## Initial Tables
 
@@ -42,5 +44,6 @@ Goal: create the first runnable Rust backend with storage foundations.
 - Backend starts locally.
 - `/health` returns mode, app version, API version, and storage schema version.
 - Migrations run against SQLite.
+- Job state transitions are covered by tests.
 - Schema design document is updated.
 - `CHANGELOG.md` and version metadata are updated for code, API, and schema changes.

@@ -13,6 +13,14 @@ Expected tools:
 - SQLite for desktop/local development.
 - Optional llama.cpp server for local AI testing.
 
+Local AI defaults:
+
+```bash
+LLAMA_CPP_BASE_URL=http://127.0.0.1:8080
+LLAMA_CPP_DEFAULT_MODEL=qwen3
+LLAMA_CPP_TIMEOUT_SECS=120
+```
+
 ## Intended Layout
 
 ```text
@@ -59,6 +67,7 @@ curl http://127.0.0.1:3000/health
 curl -X POST http://127.0.0.1:3000/api/projects \
   -H "content-type: application/json" \
   -d "{\"name\":\"Demo\"}"
+curl http://127.0.0.1:3000/api/local-llm/health
 ```
 
 Frontend commands are still future placeholders:

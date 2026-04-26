@@ -31,4 +31,6 @@ Phase 1 foundation:
 - Define contracts and ADRs.
 - Continue Rust backend foundation.
 - Keep `CHANGELOG.md`, `VERSION`, workspace `Cargo.toml`, and `crates/core/src/version.rs` aligned when behavior changes.
+- Continue durable job orchestration before adding AI provider execution.
+- Prioritize local llama.cpp execution before hosted BYOK provider execution.
 - Do not start complex graph/map/timeline rendering yet.

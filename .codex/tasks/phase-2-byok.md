@@ -1,10 +1,11 @@
-# Phase 2 - BYOK Provider Layer
+# Phase 2 - AI Provider Layer
 
-Goal: safely support user-provided LLM API keys on the hosted web path.
+Goal: support local llama.cpp first, then safely support user-provided LLM API keys on the hosted web path.
 
 ## Scope
 
 - Provider abstraction.
+- llama.cpp local provider client.
 - OpenAI-compatible provider client.
 - Anthropic provider client.
 - llama.cpp local provider client.
@@ -12,6 +13,14 @@ Goal: safely support user-provided LLM API keys on the hosted web path.
 - Masked key display.
 - Usage accounting.
 - Redaction tests.
+
+## Local-First Priority
+
+- Local llama.cpp health check.
+- Local llama.cpp model list.
+- Local llama.cpp chat completions.
+- No API key required for local llama.cpp.
+- Do not couple local LLM calls to browser local storage.
 
 ## Security Requirements
 
@@ -25,4 +34,3 @@ Goal: safely support user-provided LLM API keys on the hosted web path.
 
 - No persistent encrypted key storage until session-only flow and redaction are tested.
 - No billing integration.
-

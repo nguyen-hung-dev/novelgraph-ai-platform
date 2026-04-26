@@ -10,6 +10,9 @@ pub enum StorageError {
     #[error("record not found: {0}")]
     NotFound(&'static str),
 
+    #[error("invalid job transition: {0}")]
+    InvalidJobTransition(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

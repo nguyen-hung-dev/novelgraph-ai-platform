@@ -27,13 +27,18 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] PostgreSQL-ready schema.
 - [x] Typed API errors.
 - [x] Job event contract.
+- [x] Job state machine.
+- [x] Job read/cancel endpoints.
 
 ## Phase 2 - BYOK and Provider Layer
 
 - [ ] Provider abstraction.
 - [ ] OpenAI-compatible client.
 - [ ] Anthropic client.
-- [ ] llama.cpp local client.
+- [x] llama.cpp local client.
+- [x] Local LLM health endpoint.
+- [x] Local LLM model listing endpoint.
+- [x] Local LLM chat completion endpoint.
 - [ ] Session-only BYOK.
 - [ ] Masked key display.
 - [ ] Usage accounting.

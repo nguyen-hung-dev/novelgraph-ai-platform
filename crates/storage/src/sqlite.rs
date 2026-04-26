@@ -4,6 +4,7 @@ use novelgraph_core::{
     split_chapters, split_source_segments, AnalysisJob, Chapter, CreateTranslationJobInput,
     JobEvent, Novel, NovelImportInput, NovelImportResult, Project, TranslationJob,
 };
+use novelgraph_jobs::{cancel_event_type, validate_transition, JobKind, JobStatus};
 use serde_json::json;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
@@ -376,6 +377,77 @@ impl SqliteStore {
         Ok(rows.into_iter().map(job_event_from_row).collect())
     }
 
+    pub async fn get_analysis_job(
+        &self,
+        project_id: &str,
+        analysis_job_id: &str,
+    ) -> StorageResult<Option<AnalysisJob>> {
+        let row = sqlx::query(
+            "SELECT id, project_id, novel_id, job_type, status, payload_json,
+                    started_at, finished_at, error_code, error_message, created_at, updated_at
+             FROM analysis_jobs
+             WHERE project_id = ? AND id = ?",
+        )
+        .bind(project_id)
+        .bind(analysis_job_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(analysis_job_from_row))
+    }
+
+    pub async fn cancel_analysis_job(
+        &self,
+        project_id: &str,
+        analysis_job_id: &str,
+    ) -> StorageResult<AnalysisJob> {
+        let current = self
+            .get_analysis_job(project_id, analysis_job_id)
+            .await?
+            .ok_or(StorageError::NotFound("analysis_job"))?;
+        let from_status = JobStatus::parse(&current.status)
+            .map_err(|err| StorageError::InvalidJobTransition(err.to_string()))?;
+
+        validate_transition(from_status, JobStatus::Cancelled)
+            .map_err(|err| StorageError::InvalidJobTransition(err.to_string()))?;
+
+        if from_status == JobStatus::Cancelled {
+            return Ok(current);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE analysis_jobs
+             SET status = 'cancelled',
+                 finished_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE project_id = ? AND id = ?",
+        )
+        .bind(project_id)
+        .bind(analysis_job_id)
+        .execute(&mut *tx)
+        .await?;
+
+        insert_job_event(
+            &mut tx,
+            project_id,
+            analysis_job_id,
+            JobKind::Analysis,
+            cancel_event_type(JobKind::Analysis),
+            json!({
+                "from_status": from_status.as_str(),
+                "to_status": "cancelled",
+            })
+            .to_string(),
+        )
+        .await?;
+        tx.commit().await?;
+
+        self.get_analysis_job(project_id, analysis_job_id)
+            .await?
+            .ok_or(StorageError::NotFound("analysis_job"))
+    }
+
     pub async fn get_translation_job(
         &self,
         project_id: &str,
@@ -383,7 +455,8 @@ impl SqliteStore {
     ) -> StorageResult<Option<TranslationJob>> {
         let row = sqlx::query(
             "SELECT id, project_id, novel_id, source_language, target_language,
-                    provider, model, status, payload_json, created_at, updated_at
+                    provider, model, status, payload_json, started_at, finished_at,
+                    error_code, error_message, created_at, updated_at
              FROM translation_jobs
              WHERE project_id = ? AND id = ?",
         )
@@ -393,6 +466,58 @@ impl SqliteStore {
         .await?;
 
         Ok(row.map(translation_job_from_row))
+    }
+
+    pub async fn cancel_translation_job(
+        &self,
+        project_id: &str,
+        translation_job_id: &str,
+    ) -> StorageResult<TranslationJob> {
+        let current = self
+            .get_translation_job(project_id, translation_job_id)
+            .await?
+            .ok_or(StorageError::NotFound("translation_job"))?;
+        let from_status = JobStatus::parse(&current.status)
+            .map_err(|err| StorageError::InvalidJobTransition(err.to_string()))?;
+
+        validate_transition(from_status, JobStatus::Cancelled)
+            .map_err(|err| StorageError::InvalidJobTransition(err.to_string()))?;
+
+        if from_status == JobStatus::Cancelled {
+            return Ok(current);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE translation_jobs
+             SET status = 'cancelled',
+                 finished_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE project_id = ? AND id = ?",
+        )
+        .bind(project_id)
+        .bind(translation_job_id)
+        .execute(&mut *tx)
+        .await?;
+
+        insert_job_event(
+            &mut tx,
+            project_id,
+            translation_job_id,
+            JobKind::Translation,
+            cancel_event_type(JobKind::Translation),
+            json!({
+                "from_status": from_status.as_str(),
+                "to_status": "cancelled",
+            })
+            .to_string(),
+        )
+        .await?;
+        tx.commit().await?;
+
+        self.get_translation_job(project_id, translation_job_id)
+            .await?
+            .ok_or(StorageError::NotFound("translation_job"))
     }
 
     async fn connect_with_options(
@@ -458,24 +583,42 @@ impl SqliteStore {
 
         Ok(())
     }
+}
 
-    async fn get_analysis_job(
-        &self,
-        project_id: &str,
-        analysis_job_id: &str,
-    ) -> StorageResult<Option<AnalysisJob>> {
-        let row = sqlx::query(
-            "SELECT id, project_id, novel_id, job_type, status, payload_json, created_at, updated_at
-             FROM analysis_jobs
-             WHERE project_id = ? AND id = ?",
-        )
-        .bind(project_id)
-        .bind(analysis_job_id)
-        .fetch_optional(&self.pool)
-        .await?;
+async fn insert_job_event(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+    job_id: &str,
+    job_kind: JobKind,
+    event_type: &str,
+    payload_json: String,
+) -> StorageResult<()> {
+    let sequence: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(sequence), 0) + 1
+         FROM job_events
+         WHERE job_id = ?",
+    )
+    .bind(job_id)
+    .fetch_one(&mut **tx)
+    .await?;
 
-        Ok(row.map(analysis_job_from_row))
-    }
+    sqlx::query(
+        "INSERT INTO job_events (
+            id, project_id, job_id, job_kind, sequence, event_type, payload_json
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(prefixed_id("evt"))
+    .bind(project_id)
+    .bind(job_id)
+    .bind(job_kind.as_str())
+    .bind(sequence)
+    .bind(event_type)
+    .bind(payload_json)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
 }
 
 fn require_text(value: &str, field: &str) -> StorageResult<String> {
@@ -542,6 +685,10 @@ fn analysis_job_from_row(row: SqliteRow) -> AnalysisJob {
         job_type: row.get("job_type"),
         status: row.get("status"),
         payload_json: row.get("payload_json"),
+        started_at: row.get("started_at"),
+        finished_at: row.get("finished_at"),
+        error_code: row.get("error_code"),
+        error_message: row.get("error_message"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -558,6 +705,10 @@ fn translation_job_from_row(row: SqliteRow) -> TranslationJob {
         model: row.get("model"),
         status: row.get("status"),
         payload_json: row.get("payload_json"),
+        started_at: row.get("started_at"),
+        finished_at: row.get("finished_at"),
+        error_code: row.get("error_code"),
+        error_message: row.get("error_message"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -614,6 +765,12 @@ mod tests {
             .unwrap();
         assert_eq!(analysis_events.len(), 1);
         assert_eq!(analysis_events[0].event_type, "analysis_job_created");
+        let cancelled_analysis_job = store
+            .cancel_analysis_job(&project.id, &import.analysis_job.id)
+            .await
+            .unwrap();
+        assert_eq!(cancelled_analysis_job.status, "cancelled");
+        assert!(cancelled_analysis_job.finished_at.is_some());
 
         let translation_job = store
             .create_translation_job(
@@ -639,5 +796,20 @@ mod tests {
             .unwrap();
         assert_eq!(translation_events.len(), 1);
         assert_eq!(translation_events[0].event_type, "translation_job_created");
+        let cancelled_translation_job = store
+            .cancel_translation_job(&project.id, &translation_job.id)
+            .await
+            .unwrap();
+        assert_eq!(cancelled_translation_job.status, "cancelled");
+
+        let translation_events = store
+            .list_job_events(&project.id, &translation_job.id)
+            .await
+            .unwrap();
+        assert_eq!(translation_events.len(), 2);
+        assert_eq!(
+            translation_events[1].event_type,
+            "translation_job_cancelled"
+        );
     }
 }

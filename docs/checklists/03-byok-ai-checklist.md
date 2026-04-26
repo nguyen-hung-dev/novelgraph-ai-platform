@@ -37,10 +37,11 @@
   - [ ] Messages API.
   - [ ] Streaming.
   - [ ] Token usage.
-- [ ] llama.cpp client.
-  - [ ] OpenAI-compatible local endpoint.
-  - [ ] Health check.
-  - [ ] Model metadata.
+- [x] llama.cpp client.
+  - [x] OpenAI-compatible local endpoint.
+  - [x] Health check.
+  - [x] Model metadata.
+  - [x] Chat completions.
 
 ## Logging Và Bảo Mật
 
@@ -61,4 +62,3 @@
 - [ ] Gắn usage với `user_id`.
 - [ ] Gắn usage với `project_id`.
 - [ ] Gắn usage với `job_id`.
-

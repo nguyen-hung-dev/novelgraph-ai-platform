@@ -1,0 +1,9 @@
+ALTER TABLE analysis_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE analysis_jobs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
+ALTER TABLE analysis_jobs ADD COLUMN IF NOT EXISTS error_code TEXT;
+ALTER TABLE analysis_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;
+
+ALTER TABLE translation_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE translation_jobs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
+ALTER TABLE translation_jobs ADD COLUMN IF NOT EXISTS error_code TEXT;
+ALTER TABLE translation_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;

@@ -1,4 +1,5 @@
 use anyhow::Context;
+use novelgraph_ai::{LlamaCppClient, LlamaCppConfig};
 use novelgraph_api::build_router;
 use novelgraph_core::AppConfig;
 use novelgraph_storage::SqliteStore;
@@ -25,8 +26,13 @@ async fn main() -> anyhow::Result<()> {
     } else {
         SqliteStore::connect(config.sqlite_database_path.as_deref()).await?
     };
+    let local_llm = LlamaCppClient::new(LlamaCppConfig {
+        base_url: config.llama_cpp_base_url.clone(),
+        default_model: config.llama_cpp_default_model.clone(),
+        timeout_secs: config.llama_cpp_timeout_secs,
+    })?;
     let bind_addr = config.bind_addr();
-    let router = build_router(config, store);
+    let router = build_router(config, store, local_llm);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("failed to bind {bind_addr}"))?;

@@ -38,8 +38,17 @@ GET    /api/projects/{project_id}/novels/{novel_id}
 GET    /api/projects/{project_id}/novels/{novel_id}/chapters
 
 POST   /api/projects/{project_id}/translation/jobs
+GET    /api/projects/{project_id}/translation/jobs/{job_id}
+POST   /api/projects/{project_id}/translation/jobs/{job_id}/cancel
+
+GET    /api/projects/{project_id}/analysis/jobs/{job_id}
+POST   /api/projects/{project_id}/analysis/jobs/{job_id}/cancel
 
 GET    /api/projects/{project_id}/jobs/{job_id}/events
+
+GET    /api/local-llm/health
+GET    /api/local-llm/models
+POST   /api/local-llm/chat/completions
 ```
 
 Health response shape:
@@ -48,9 +57,9 @@ Health response shape:
 {
   "status": "ok",
   "app_mode": "web",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "api_version": "v0",
-  "storage_schema_version": "2026-04-26.foundation.v1"
+  "storage_schema_version": "2026-04-26.foundation.v2"
 }
 ```
 
@@ -59,7 +68,10 @@ Implemented import behavior:
 - `preview` splits text into chapter previews without persistence.
 - `confirm` stores the novel, chapters, paragraph-level source segments, and a pending analysis job.
 - Translation job creation is persisted, but translation execution is not implemented yet.
+- Analysis and translation jobs can be read and cancelled.
+- Cancelling a terminal job returns `409 invalid_job_transition`.
 - `jobs/{job_id}/events` returns persisted job events in sequence order. SSE streaming is still planned.
+- Local llama.cpp endpoints use the OpenAI-compatible `/v1` server surface and do not require browser-provided API keys.
 
 ## Core REST Endpoints
 
@@ -97,6 +109,10 @@ POST   /api/settings/byok/session
 DELETE /api/settings/byok/session
 
 GET    /api/projects/{project_id}/jobs/{job_id}/events
+
+GET    /api/local-llm/health
+GET    /api/local-llm/models
+POST   /api/local-llm/chat/completions
 ```
 
 ## Realtime Events

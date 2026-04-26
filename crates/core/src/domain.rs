@@ -54,6 +54,10 @@ pub struct AnalysisJob {
     pub job_type: String,
     pub status: String,
     pub payload_json: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -69,6 +73,10 @@ pub struct TranslationJob {
     pub model: Option<String>,
     pub status: String,
     pub payload_json: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -15,12 +15,12 @@
   - [x] Axum router.
   - [x] Health endpoint.
   - [x] Error envelope.
-- [ ] Tạo crate `crates/jobs`.
-  - [ ] Job state machine.
-  - [ ] Event schema.
-- [ ] Tạo crate `crates/ai`.
+- [x] Tạo crate `crates/jobs`.
+  - [x] Job state machine.
+  - [x] Event schema.
+- [x] Tạo crate `crates/ai`.
   - [ ] Provider trait.
-  - [ ] Provider errors.
+  - [x] Provider errors.
 
 ## Config
 
@@ -52,6 +52,11 @@
   - [x] `translation_review_items`.
   - [x] `llm_provider_configs`.
   - [x] `llm_usage_events`.
+- [x] Tạo migration `0002_job_state`.
+  - [x] `started_at`.
+  - [x] `finished_at`.
+  - [x] `error_code`.
+  - [x] `error_message`.
 - [x] Chạy migration trên SQLite.
 - [ ] Chạy migration trên PostgreSQL.
 - [x] Viết repository tests.
@@ -67,6 +72,10 @@
 - [x] `GET /api/projects/{project_id}/novels/{novel_id}`.
 - [x] `GET /api/projects/{project_id}/novels/{novel_id}/chapters`.
 - [x] `POST /api/projects/{project_id}/translation/jobs`.
+- [x] `GET /api/projects/{project_id}/analysis/jobs/{job_id}`.
+- [x] `POST /api/projects/{project_id}/analysis/jobs/{job_id}/cancel`.
+- [x] `GET /api/projects/{project_id}/translation/jobs/{job_id}`.
+- [x] `POST /api/projects/{project_id}/translation/jobs/{job_id}/cancel`.
 - [x] Event endpoint cho job progress.
 - [ ] Request id middleware.
 - [ ] CORS policy cho web.
@@ -79,3 +88,5 @@
 - [ ] Integration test health endpoint.
 - [x] Integration test project CRUD.
 - [x] Unit test chapter splitter.
+- [x] Unit test job state machine.
+- [x] Integration test job cancel.

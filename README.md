@@ -4,7 +4,7 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
-Current foundation version: `0.1.1`.
+Current foundation version: `0.3.0`.
 
 ## License
 
@@ -93,7 +93,7 @@ The first implementation milestone should not start with visualization. It shoul
 
 ## Current Status
 
-Planning repository initialized. The Rust backend foundation now includes `core`, `storage`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, and persisted job events. The product application is not usable yet.
+Planning repository initialized. The Rust backend foundation now includes `core`, `storage`, `jobs`, `ai`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, job state validation, cancellation endpoints, persisted job events, and local llama.cpp health/models/chat endpoints. The product application is not usable yet.
 
 See:
 

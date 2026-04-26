@@ -1,18 +1,12 @@
 [package]
-name = "novelgraph-storage"
+name = "novelgraph-ai"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-novelgraph-core = { path = "../core" }
-novelgraph-jobs = { path = "../jobs" }
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
-tokio.workspace = true

@@ -2,7 +2,7 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
-Phiên bản foundation hiện tại: `0.1.1`.
+Phiên bản foundation hiện tại: `0.3.0`.
 
 ## Giấy Phép
 
@@ -59,7 +59,7 @@ Import -> Split -> Prescan -> ExtractChapter[n] -> Normalize -> Aggregate
 
 ## Trạng Thái Hiện Tại
 
-Repo đang ở giai đoạn planning/foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job và lưu job event. Ứng dụng sản phẩm vẫn chưa dùng được thực tế.
+Repo đang ở giai đoạn planning/foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `jobs`, `ai`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job, kiểm tra trạng thái job, endpoint cancel job, lưu job event và endpoint local llama.cpp health/models/chat. Ứng dụng sản phẩm vẫn chưa dùng được thực tế.
 
 Hiện đã có:
 

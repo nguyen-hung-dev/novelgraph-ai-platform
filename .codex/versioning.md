@@ -2,10 +2,10 @@
 
 ## Current Version
 
-- App version: `0.1.1`
+- App version: `0.3.0`
 - API version: `v0`
 - Release channel: `foundation`
-- Storage schema version: `2026-04-26.foundation.v1`
+- Storage schema version: `2026-04-26.foundation.v2`
 
 ## Required Files
 
