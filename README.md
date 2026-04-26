@@ -4,7 +4,7 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
-Current foundation version: `0.3.0`.
+Current foundation version: `0.5.0`.
 
 ## License
 
@@ -65,8 +65,11 @@ Deployment modes:
 
 ```text
 apps/
-  web/                 # Future SvelteKit app
+  web/                 # SvelteKit workspace shell
   desktop/             # Future Tauri app shell
+scripts/
+  dev-stack.ps1        # Windows launcher for backend + frontend
+  dev-stack.bat        # Batch wrapper for the PowerShell launcher
 crates/
   api/                 # Future Axum API crate
   core/                # Domain models, jobs, extraction contracts
@@ -93,7 +96,7 @@ The first implementation milestone should not start with visualization. It shoul
 
 ## Current Status
 
-Planning repository initialized. The Rust backend foundation now includes `core`, `storage`, `jobs`, `ai`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, job state validation, cancellation endpoints, persisted job events, and local llama.cpp health/models/chat endpoints. The product application is not usable yet.
+Foundation repository active. The Rust backend foundation now includes `core`, `storage`, `jobs`, `ai`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, job state validation, cancellation endpoints, persisted job events, local llama.cpp health/models/chat endpoints, and a local draft chapter extraction endpoint. The frontend now also includes a SvelteKit workspace shell in `apps/web` with bookshelf, overview, import, reading, analysis, review, settings, and BYOK routes backed by mock workflow state. Windows development now also has a `scripts/dev-stack` launcher that starts backend and frontend together and cleans them up with the parent CLI session. The product application is not wired end to end yet.
 
 See:
 

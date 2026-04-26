@@ -6,12 +6,13 @@ use axum::{
     Json, Router,
 };
 use novelgraph_ai::{
-    AiError, ChatCompletionRequest, ChatCompletionResponse, LlamaCppClient, LocalLlmHealth,
-    ModelListResponse,
+    AiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, LlamaCppClient, LlmRole,
+    LocalLlmHealth, ModelListResponse,
 };
 use novelgraph_core::{
-    build_import_preview, AppConfig, CreateProjectInput, CreateTranslationJobInput,
-    NovelImportInput, API_VERSION, APP_VERSION, STORAGE_SCHEMA_VERSION,
+    build_draft_extraction_prompt, build_import_preview, AppConfig, CreateProjectInput,
+    CreateTranslationJobInput, DraftExtractionInput, DraftExtractionPrompt, NovelImportInput,
+    API_VERSION, APP_VERSION, STORAGE_SCHEMA_VERSION,
 };
 use novelgraph_storage::{SqliteStore, StorageError};
 use serde::Serialize;
@@ -38,6 +39,10 @@ pub fn build_router(config: AppConfig, store: SqliteStore, local_llm: LlamaCppCl
         .route(
             "/api/local-llm/chat/completions",
             post(local_llm_chat_completion),
+        )
+        .route(
+            "/api/local-llm/extraction/draft-chapter",
+            post(local_llm_draft_chapter_extraction),
         )
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{project_id}", get(get_project))
@@ -119,6 +124,43 @@ async fn local_llm_chat_completion(
     Json(input): Json<ChatCompletionRequest>,
 ) -> Result<Json<ChatCompletionResponse>, ApiError> {
     Ok(Json(state.local_llm.chat_completion(input).await?))
+}
+
+async fn local_llm_draft_chapter_extraction(
+    State(state): State<AppState>,
+    Json(input): Json<DraftExtractionInput>,
+) -> Result<Json<DraftExtractionResponse>, ApiError> {
+    if input.text.trim().is_empty() {
+        return Err(ApiError::bad_request("chapter text is required"));
+    }
+
+    let prompt = build_draft_extraction_prompt(&input);
+    let llm_response = state
+        .local_llm
+        .chat_completion(ChatCompletionRequest {
+            model: None,
+            messages: vec![
+                ChatMessage {
+                    role: LlmRole::System,
+                    content: prompt.system_prompt.clone(),
+                },
+                ChatMessage {
+                    role: LlmRole::User,
+                    content: prompt.user_prompt.clone(),
+                },
+            ],
+            temperature: Some(0.1),
+            max_tokens: Some(4096),
+            stream: false,
+        })
+        .await?;
+
+    Ok(Json(DraftExtractionResponse {
+        schema_version: prompt.schema_version,
+        prompt,
+        llm_response,
+        persisted: false,
+    }))
 }
 
 async fn list_projects(
@@ -359,4 +401,12 @@ struct ErrorEnvelope {
 struct ErrorBody {
     code: &'static str,
     message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DraftExtractionResponse {
+    pub schema_version: &'static str,
+    pub prompt: DraftExtractionPrompt,
+    pub llm_response: ChatCompletionResponse,
+    pub persisted: bool,
 }

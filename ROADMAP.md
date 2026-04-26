@@ -14,7 +14,7 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] Layered implementation checklists.
 - [x] License selection.
 - [x] Rust workspace decision.
-- [ ] SvelteKit package manager decision.
+- [x] SvelteKit package manager decision.
 - [ ] API contract generation strategy.
 
 ## Phase 1 - Backend Foundation
@@ -54,10 +54,11 @@ This roadmap is intentionally foundation-first. The project should not rush into
 
 ## Phase 4 - Evidence-First Extraction
 
-- [ ] Chapter extraction schema.
+- [x] Chapter extraction schema.
 - [ ] Evidence span validation.
 - [ ] Observation persistence.
 - [ ] Review item generation.
+- [x] Local draft extraction endpoint.
 - [ ] Old-vs-new sample regression harness.
 
 ## Phase 5 - Parallel Translation
@@ -73,9 +74,9 @@ This roadmap is intentionally foundation-first. The project should not rush into
 
 ## Phase 6 - Minimal Workspace UI
 
-- [ ] SvelteKit shell.
-- [ ] Project/bookshelf view.
-- [ ] Reading view.
-- [ ] Analysis progress view.
-- [ ] BYOK settings view.
-- [ ] Review queue view.
+- [x] SvelteKit shell.
+- [x] Project/bookshelf view.
+- [x] Reading view.
+- [x] Analysis progress view.
+- [x] BYOK settings view.
+- [x] Review queue view.

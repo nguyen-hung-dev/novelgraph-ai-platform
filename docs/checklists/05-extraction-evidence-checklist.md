@@ -2,21 +2,21 @@
 
 ## Schema
 
-- [ ] Chapter extraction schema.
+- [x] Chapter extraction schema.
 - [ ] Evidence span schema.
 - [ ] Observation schema.
 - [ ] Review item schema.
 - [ ] Prompt run schema.
-- [ ] Version cho schema.
+- [x] Version cho schema.
 
 ## Prompt Contract
 
-- [ ] Prompt chỉ dùng current chapter và prior context cho phép.
-- [ ] Cấm dùng future chapters.
-- [ ] Yêu cầu evidence spans.
-- [ ] Yêu cầu confidence.
-- [ ] Yêu cầu review item cho fact không chắc chắn.
-- [ ] Yêu cầu output JSON hợp lệ.
+- [x] Prompt chỉ dùng current chapter và prior context cho phép.
+- [x] Cấm dùng future chapters.
+- [x] Yêu cầu evidence spans.
+- [x] Yêu cầu confidence.
+- [x] Yêu cầu review item cho fact không chắc chắn.
+- [x] Yêu cầu output JSON hợp lệ.
 
 ## Validation
 
@@ -53,4 +53,3 @@
 - [ ] So sánh relation recall.
 - [ ] So sánh evidence validity.
 - [ ] Theo dõi parse failure rate.
-

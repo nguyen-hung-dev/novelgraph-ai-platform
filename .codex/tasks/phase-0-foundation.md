@@ -11,9 +11,9 @@ Goal: create a stable foundation before app code grows.
 - [x] Add first ADR.
 - [x] Add GitHub workflow and templates.
 - [x] Add Codex operating context.
-- [ ] Choose license.
-- [ ] Choose package manager for frontend.
-- [ ] Choose Rust workspace layout.
+- [x] Choose license.
+- [x] Choose package manager for frontend.
+- [x] Choose Rust workspace layout.
 - [ ] Decide whether API contracts are OpenAPI-first or Rust-schema-first.
 
 ## Exit Criteria
@@ -21,4 +21,3 @@ Goal: create a stable foundation before app code grows.
 - New contributors can understand the product goal from README.
 - Agent can understand implementation direction from AGENTS.md and `.codex`.
 - First implementation slice is clear and scoped.
-

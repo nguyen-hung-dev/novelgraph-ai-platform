@@ -19,6 +19,7 @@ Goal: support local llama.cpp first, then safely support user-provided LLM API k
 - Local llama.cpp health check.
 - Local llama.cpp model list.
 - Local llama.cpp chat completions.
+- Local draft chapter extraction for prompt evaluation.
 - No API key required for local llama.cpp.
 - Do not couple local LLM calls to browser local storage.
 

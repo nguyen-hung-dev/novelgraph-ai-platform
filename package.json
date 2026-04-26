@@ -1,0 +1,15 @@
+{
+  "name": "novelgraph-ai-platform",
+  "private": true,
+  "version": "0.5.0",
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "dev:stack": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-stack.ps1",
+    "dev:stack:dry-run": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-stack.ps1 -DryRun",
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "check:web": "pnpm --filter web check",
+    "lint:web": "pnpm --filter web lint",
+    "test:web": "pnpm --filter web test"
+  }
+}

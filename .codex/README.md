@@ -25,12 +25,11 @@ Build a hybrid web/desktop AI novel analysis platform:
 
 ## Current Priority
 
-Phase 1 foundation:
+Foundation slices in progress:
 
-- Establish repo structure.
-- Define contracts and ADRs.
-- Continue Rust backend foundation.
 - Keep `CHANGELOG.md`, `VERSION`, workspace `Cargo.toml`, and `crates/core/src/version.rs` aligned when behavior changes.
-- Continue durable job orchestration before adding AI provider execution.
+- Continue durable job orchestration before adding broad provider execution.
 - Prioritize local llama.cpp execution before hosted BYOK provider execution.
+- Grow the SvelteKit workspace shell with typed API wiring, request tracing, and reusable split-pane components.
+- Keep the web shell visually aligned with the future desktop shell.
 - Do not start complex graph/map/timeline rendering yet.

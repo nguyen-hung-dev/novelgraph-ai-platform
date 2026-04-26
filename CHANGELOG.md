@@ -8,6 +8,32 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.5.0] - 2026-04-26
+
+### Added
+
+- Added draft chapter extraction prompt builder for evidence-first local testing.
+- Added `draft.chapter_extraction.v0` schema version marker.
+- Added local llama.cpp draft chapter extraction endpoint that returns prompt metadata and raw LLM response without persisting observations.
+- Added prompt builder tests for current-chapter boundary and review item requirements.
+- Added root `pnpm` workspace configuration and frontend scripts.
+- Added a SvelteKit `apps/web` workspace with Node adapter, lint, typecheck, and unit test setup.
+- Added a desktop-style workspace shell with bookshelf, overview, import, reading, analysis, review, settings, and BYOK routes.
+- Added reading split-pane state with local reading-position persistence.
+- Added draft import and BYOK form surfaces for later Rust API integration.
+- Added frontend navigation unit tests for route matching.
+- Added `scripts/dev-stack.ps1` and `scripts/dev-stack.bat` to launch backend and frontend together on Windows.
+- Added automatic dev-port handling that restarts repo-owned listeners on preferred ports or picks the next free port when a different process is already listening.
+- Added Windows job-object cleanup so the launcher stops child backend/frontend processes when the CLI session ends.
+
+### Changed
+
+- Updated app version metadata to `0.5.0`.
+- Selected `pnpm` as the frontend package manager.
+- Kept draft extraction non-mutating so local prompt quality can be evaluated before observation persistence.
+- Updated roadmap, implementation plan, development guide, and frontend checklists to reflect the first UI foundation slice.
+- Added root package scripts for `dev:stack` and `dev:stack:dry-run`.
+
 ## [0.3.0] - 2026-04-26
 
 ### Added

@@ -2,7 +2,7 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
-Phiên bản foundation hiện tại: `0.3.0`.
+Phiên bản foundation hiện tại: `0.5.0`.
 
 ## Giấy Phép
 
@@ -59,7 +59,7 @@ Import -> Split -> Prescan -> ExtractChapter[n] -> Normalize -> Aggregate
 
 ## Trạng Thái Hiện Tại
 
-Repo đang ở giai đoạn planning/foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `jobs`, `ai`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job, kiểm tra trạng thái job, endpoint cancel job, lưu job event và endpoint local llama.cpp health/models/chat. Ứng dụng sản phẩm vẫn chưa dùng được thực tế.
+Repo đang ở giai đoạn foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `jobs`, `ai`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job, kiểm tra trạng thái job, endpoint cancel job, lưu job event, endpoint local llama.cpp health/models/chat và endpoint draft extraction local cho một chương. Phần frontend hiện cũng đã có một SvelteKit workspace shell trong `apps/web` với các route bookshelf, overview, import, reading, analysis, review, settings và BYOK, đang dùng mock workflow state để chuẩn bị nối API thật. Ứng dụng sản phẩm vẫn chưa nối end-to-end với backend thật.
 
 Hiện đã có:
 
@@ -69,6 +69,8 @@ Hiện đã có:
 - Ghi chú bảo mật BYOK.
 - ADR đầu tiên.
 - `.codex` operating context cho AI coding agent.
+- Root `pnpm` workspace và SvelteKit web workspace shell.
+- Launcher Windows `scripts/dev-stack.ps1` và `scripts/dev-stack.bat` để chạy BE/FE cùng lúc và dọn process khi phiên CLI kết thúc.
 
 ## Tài Liệu Chính
 

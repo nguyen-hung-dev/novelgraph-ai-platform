@@ -1,6 +1,6 @@
 # Development Guide
 
-The Rust backend foundation is scaffolded. The product UI and AI workers are not implemented yet.
+The Rust backend foundation and the first SvelteKit workspace shell are scaffolded. Durable API wiring and AI workers are still in progress.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ Expected tools:
 
 - Rust stable.
 - Node.js LTS.
-- A package manager to be selected: `pnpm`, `npm`, or `bun`.
+- `pnpm` 10+.
 - PostgreSQL for hosted web development later.
 - SQLite for desktop/local development.
 - Optional llama.cpp server for local AI testing.
@@ -70,11 +70,36 @@ curl -X POST http://127.0.0.1:3000/api/projects \
 curl http://127.0.0.1:3000/api/local-llm/health
 ```
 
-Frontend commands are still future placeholders:
+Frontend commands now run from the repository root:
 
 ```bash
 pnpm install
-pnpm --filter web dev
+pnpm dev:web
+pnpm check:web
+pnpm lint:web
+pnpm test:web
+pnpm build:web
+```
+
+Windows full-stack launcher:
+
+```powershell
+scripts\dev-stack.bat
+# hoặc
+powershell -ExecutionPolicy Bypass -File scripts/dev-stack.ps1
+```
+
+Launcher behavior:
+
+- Preferred ports: backend `3000`, frontend `5173`.
+- If a preferred port is already used by this repo's own dev process, the launcher stops that process tree and reuses the preferred port.
+- If a preferred port is used by a different process, the launcher searches for the next free port.
+- Child backend/frontend processes are attached to a Windows job object so they are terminated when the launcher process exits.
+
+Dry-run mode:
+
+```powershell
+pnpm dev:stack:dry-run
 ```
 
 ## Development Principles

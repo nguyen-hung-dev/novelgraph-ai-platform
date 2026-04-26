@@ -2,24 +2,24 @@
 
 ## App Shell
 
-- [ ] SvelteKit app scaffold.
-- [ ] Layout desktop-style.
-- [ ] Sidebar project navigation.
-- [ ] Top toolbar.
-- [ ] Main content region.
-- [ ] Split pane support.
-- [ ] Responsive desktop-first behavior.
+- [x] SvelteKit app scaffold.
+- [x] Layout desktop-style.
+- [x] Sidebar project navigation.
+- [x] Top toolbar.
+- [x] Main content region.
+- [x] Split pane support.
+- [x] Responsive desktop-first behavior.
 
 ## Routes
 
-- [ ] Projects/bookshelf.
-- [ ] Project overview.
-- [ ] Import novel.
-- [ ] Reading.
-- [ ] Analysis progress.
-- [ ] Review queue.
-- [ ] Settings.
-- [ ] BYOK settings.
+- [x] Projects/bookshelf.
+- [x] Project overview.
+- [x] Import novel.
+- [x] Reading.
+- [x] Analysis progress.
+- [x] Review queue.
+- [x] Settings.
+- [x] BYOK settings.
 
 ## API Client
 
@@ -32,38 +32,37 @@
 
 ## BYOK UI
 
-- [ ] Provider selector.
-- [ ] Base URL input.
-- [ ] Model input.
-- [ ] API key input.
-- [ ] Validate key action.
-- [ ] Masked key display.
-- [ ] Clear session key.
-- [ ] Warning về bảo mật.
+- [x] Provider selector.
+- [x] Base URL input.
+- [x] Model input.
+- [x] API key input.
+- [x] Validate key action.
+- [x] Masked key display.
+- [x] Clear session key.
+- [x] Warning về bảo mật.
 
 ## Import UI
 
-- [ ] File picker.
-- [ ] Drag and drop.
-- [ ] Preview table.
-- [ ] Chapter count.
-- [ ] Split warnings.
-- [ ] Confirm import.
+- [x] File picker.
+- [x] Drag and drop.
+- [x] Preview table.
+- [x] Chapter count.
+- [x] Split warnings.
+- [x] Confirm import.
 
 ## Reading UI
 
-- [ ] Chapter list.
-- [ ] Chapter content.
-- [ ] Search trong chapter.
-- [ ] Entity highlight placeholder.
-- [ ] Persist reading position.
+- [x] Chapter list.
+- [x] Chapter content.
+- [x] Search trong chapter.
+- [x] Entity highlight placeholder.
+- [x] Persist reading position.
 
 ## Analysis UI
 
-- [ ] Start analysis.
-- [ ] Cancel analysis.
-- [ ] Progress events.
-- [ ] Current stage.
-- [ ] Failed chapter list.
-- [ ] Retry failed chapters.
-
+- [x] Start analysis.
+- [x] Cancel analysis.
+- [x] Progress events.
+- [x] Current stage.
+- [x] Failed chapter list.
+- [x] Retry failed chapters.

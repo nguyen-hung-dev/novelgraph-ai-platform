@@ -5,7 +5,7 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 ## Phase 0 - Repo Foundation
 
 - Chốt tên project, README, license, coding conventions.
-- Tạo workspace Rust + SvelteKit sau khi đã chốt package manager.
+- Tạo workspace Rust + SvelteKit với `pnpm` ở root repo.
 - Tạo schema folder cho shared API contracts.
 - Tạo ADR đầu tiên về stack hybrid web/desktop.
 
@@ -71,6 +71,7 @@ Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớ
 - Upload/import page.
 - Analysis progress page.
 - Reading page with chapter navigation.
+- Current slice: mock-backed workspace shell ready for typed API wiring.
 
 ## Early Non-Goals
 

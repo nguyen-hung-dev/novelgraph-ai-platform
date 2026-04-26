@@ -5,7 +5,7 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 ## Tầng 0 - Định Hướng Và Repo
 
 - [x] Chốt license.
-- [ ] Chốt package manager cho frontend.
+- [x] Chốt package manager cho frontend.
 - [x] Chốt Rust workspace layout.
 - [ ] Chốt chiến lược API contract: OpenAPI-first hoặc Rust-schema-first.
 - [ ] Kiểm tra README tiếng Anh và tiếng Việt trước khi public rộng.
@@ -19,9 +19,9 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
   - [x] Tạo crate `ai`.
   - [x] Tạo crate `jobs`.
   - [x] Tạo crate `api`.
-- [ ] Scaffold SvelteKit app.
-  - [ ] Tạo `apps/web`.
-  - [ ] Chọn adapter cho web.
+- [x] Scaffold SvelteKit app.
+  - [x] Tạo `apps/web`.
+  - [x] Chọn adapter cho web.
   - [ ] Chuẩn bị build static cho desktop.
 - [ ] Chuẩn bị CI thật.
   - [x] Rust check/test.
@@ -58,12 +58,12 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 
 ## Tầng 5 - MVP UI
 
-- [ ] Project/bookshelf.
-- [ ] Upload/import preview.
-- [ ] Reading view.
-- [ ] Analysis progress.
-- [ ] BYOK settings.
-- [ ] Review queue.
+- [x] Project/bookshelf.
+- [x] Upload/import preview.
+- [x] Reading view.
+- [x] Analysis progress.
+- [x] BYOK settings.
+- [x] Review queue.
 - [ ] Reading song ngữ source/target.
 
 ## Tầng 6 - Release

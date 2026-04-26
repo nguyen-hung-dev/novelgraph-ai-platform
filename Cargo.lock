@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-ai"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-api"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-core"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-jobs"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "thiserror",
@@ -1015,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "novelgraph-storage"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "novelgraph-core",
  "novelgraph-jobs",

@@ -49,6 +49,7 @@ GET    /api/projects/{project_id}/jobs/{job_id}/events
 GET    /api/local-llm/health
 GET    /api/local-llm/models
 POST   /api/local-llm/chat/completions
+POST   /api/local-llm/extraction/draft-chapter
 ```
 
 Health response shape:
@@ -57,7 +58,7 @@ Health response shape:
 {
   "status": "ok",
   "app_mode": "web",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "api_version": "v0",
   "storage_schema_version": "2026-04-26.foundation.v2"
 }
@@ -72,6 +73,7 @@ Implemented import behavior:
 - Cancelling a terminal job returns `409 invalid_job_transition`.
 - `jobs/{job_id}/events` returns persisted job events in sequence order. SSE streaming is still planned.
 - Local llama.cpp endpoints use the OpenAI-compatible `/v1` server surface and do not require browser-provided API keys.
+- Draft chapter extraction calls local llama.cpp and returns prompt metadata plus the raw chat completion response. It does not persist observations.
 
 ## Core REST Endpoints
 
@@ -113,6 +115,7 @@ GET    /api/projects/{project_id}/jobs/{job_id}/events
 GET    /api/local-llm/health
 GET    /api/local-llm/models
 POST   /api/local-llm/chat/completions
+POST   /api/local-llm/extraction/draft-chapter
 ```
 
 ## Realtime Events
