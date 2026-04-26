@@ -1,0 +1,18 @@
+[package]
+name = "novelgraph-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+novelgraph-core = { path = "../core" }
+novelgraph-storage = { path = "../storage" }
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

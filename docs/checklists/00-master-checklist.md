@@ -1,0 +1,74 @@
+# Checklist Tổng Thể
+
+Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
+
+## Tầng 0 - Định Hướng Và Repo
+
+- [x] Chốt license.
+- [ ] Chốt package manager cho frontend.
+- [x] Chốt Rust workspace layout.
+- [ ] Chốt chiến lược API contract: OpenAPI-first hoặc Rust-schema-first.
+- [ ] Kiểm tra README tiếng Anh và tiếng Việt trước khi public rộng.
+- [ ] Đảm bảo không commit `docs/architecture-and-rewrite.md`.
+
+## Tầng 1 - Nền Tảng Kỹ Thuật
+
+- [x] Scaffold Rust workspace.
+  - [x] Tạo crate `core`.
+  - [x] Tạo crate `storage`.
+  - [ ] Tạo crate `ai`.
+  - [ ] Tạo crate `jobs`.
+  - [x] Tạo crate `api`.
+- [ ] Scaffold SvelteKit app.
+  - [ ] Tạo `apps/web`.
+  - [ ] Chọn adapter cho web.
+  - [ ] Chuẩn bị build static cho desktop.
+- [ ] Chuẩn bị CI thật.
+  - [x] Rust check/test.
+  - [ ] Frontend typecheck/lint.
+  - [ ] Secret scan.
+
+## Tầng 2 - Web Hosted
+
+- [ ] Thiết kế auth boundary.
+- [ ] Thiết kế workspace/project ownership.
+- [ ] Thiết kế PostgreSQL schema.
+- [ ] Thiết kế object storage.
+- [ ] Thiết kế BYOK provider proxy.
+- [ ] Thiết kế quota/rate limit.
+
+## Tầng 3 - Desktop Local
+
+- [ ] Thiết kế Tauri shell.
+- [ ] Thiết kế SQLite local storage.
+- [ ] Thiết kế local data directory.
+- [ ] Thiết kế llama.cpp sidecar.
+- [ ] Thiết kế import/export offline.
+
+## Tầng 4 - AI Pipeline
+
+- [ ] Chốt extraction schema đầu tiên.
+- [ ] Chốt translation schema đầu tiên.
+- [ ] Chốt evidence span schema.
+- [ ] Chốt observation model.
+- [ ] Chốt glossary model.
+- [ ] Chốt review item model.
+- [ ] Chốt job event model.
+- [ ] Chốt regression fixture strategy.
+
+## Tầng 5 - MVP UI
+
+- [ ] Project/bookshelf.
+- [ ] Upload/import preview.
+- [ ] Reading view.
+- [ ] Analysis progress.
+- [ ] BYOK settings.
+- [ ] Review queue.
+- [ ] Reading song ngữ source/target.
+
+## Tầng 6 - Release
+
+- [ ] Hoàn thành checklist BYOK security.
+- [ ] Hoàn thành checklist release readiness.
+- [ ] Kiểm tra docs không claim tính năng chưa có.
+- [ ] Tag release đầu tiên khi có app chạy được.

@@ -22,7 +22,9 @@ NovelGraph AI Platform is a desktop-style workspace for analyzing long-form fict
 - Explore world/location structure.
 - Explore timeline and scenes.
 - Ask grounded questions about the novel.
+- Translate chapters while preserving glossary, style, and source alignment.
 - Review uncertain AI outputs.
+- Review uncertain translation terms and segments.
 - Export project data.
 
 ## MVP Scope
@@ -38,12 +40,14 @@ The MVP should prove the foundation:
 - First evidence-first extraction schema.
 - Reading view.
 - Basic review queue.
+- Translation architecture and glossary model.
 
 ## Non-MVP
 
 - Full production billing.
 - Public marketplace.
 - Full map renderer parity.
+- Full multi-language translation quality suite.
 - Full document export suite.
 - Mobile-first layout.
 - Enterprise organization controls.
@@ -54,4 +58,3 @@ The MVP should prove the foundation:
 - The same visual language should work on web and desktop.
 - User secrets and private source text must be protected.
 - LLM outputs must be traceable to source evidence where possible.
-

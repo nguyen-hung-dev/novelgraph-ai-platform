@@ -32,7 +32,6 @@ test-results/
 
 # Rust
 target/
-Cargo.lock
 
 # Tauri bundles
 src-tauri/target/
@@ -40,10 +39,10 @@ src-tauri/gen/
 src-tauri/binaries/
 
 # Local app data
-data/
-storage/
-uploads/
-exports/
+/data/
+/storage/
+/uploads/
+/exports/
 *.db
 *.db-shm
 *.db-wal

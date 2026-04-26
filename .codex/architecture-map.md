@@ -20,6 +20,7 @@ demo
 - Novel: uploads, source text, chapters.
 - Analysis: jobs, runs, prompt calls, model usage.
 - Extraction: observations, evidence spans, review items.
+- Translation: source segments, translation segments, glossary, style profiles.
 - Knowledge: entities, aliases, mentions, relationships.
 - World: locations, spatial edges, map projections.
 - Story: timeline events, scenes, factions.
@@ -54,4 +55,3 @@ apps/web
 apps/desktop
   Tauri shell wrapping the same UI
 ```
-

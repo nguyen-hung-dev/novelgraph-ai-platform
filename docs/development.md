@@ -1,15 +1,15 @@
 # Development Guide
 
-The project is not scaffolded as a runnable application yet. This guide defines the intended development shape.
+The Rust backend foundation is scaffolded. The product UI and AI workers are not implemented yet.
 
 ## Prerequisites
 
-Expected future tools:
+Expected tools:
 
 - Rust stable.
 - Node.js LTS.
 - A package manager to be selected: `pnpm`, `npm`, or `bun`.
-- PostgreSQL for hosted web development.
+- PostgreSQL for hosted web development later.
 - SQLite for desktop/local development.
 - Optional llama.cpp server for local AI testing.
 
@@ -43,14 +43,27 @@ packages/schemas
 
 ## First Local Commands
 
-These commands are placeholders until scaffolding exists:
+The backend currently defaults to SQLite. Without environment variables it creates `data/novelgraph.sqlite3`.
 
 ```bash
 # backend
-cargo test
+cargo fmt --all --check
+cargo test --workspace
 cargo run -p novelgraph-api
+```
 
-# frontend
+Useful local API smoke test flow:
+
+```bash
+curl http://127.0.0.1:3000/health
+curl -X POST http://127.0.0.1:3000/api/projects \
+  -H "content-type: application/json" \
+  -d "{\"name\":\"Demo\"}"
+```
+
+Frontend commands are still future placeholders:
+
+```bash
 pnpm install
 pnpm --filter web dev
 ```
@@ -62,4 +75,3 @@ pnpm --filter web dev
 - Keep generated artifacts out of hand-written domain logic.
 - Add tests before broad refactors.
 - Keep BYOK security checks close to provider code.
-

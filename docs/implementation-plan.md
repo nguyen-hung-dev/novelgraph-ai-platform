@@ -1,13 +1,13 @@
 # Implementation Plan
 
-Muc tieu: bat dau rewrite bang nen tang dung, chua port UI lon qua som.
+Mục tiêu: bắt đầu rewrite bằng nền tảng đúng, chưa port UI lớn quá sớm.
 
 ## Phase 0 - Repo Foundation
 
-- Chot ten project, README, license, coding conventions.
-- Tao workspace Rust + SvelteKit sau khi da chot package manager.
-- Tao schema folder cho shared API contracts.
-- Tao ADR dau tien ve stack hybrid web/desktop.
+- Chốt tên project, README, license, coding conventions.
+- Tạo workspace Rust + SvelteKit sau khi đã chốt package manager.
+- Tạo schema folder cho shared API contracts.
+- Tạo ADR đầu tiên về stack hybrid web/desktop.
 
 ## Phase 1 - Core Backend Skeleton
 
@@ -55,7 +55,16 @@ Muc tieu: bat dau rewrite bang nen tang dung, chua port UI lon qua som.
 - Persist observations, not raw LLM blobs as the main truth.
 - Add old-vs-new regression harness against sample novels.
 
-## Phase 5 - Minimal Workspace UI
+## Phase 5 - Parallel Translation Foundation
+
+- Add source segment model shared by analysis and translation.
+- Add translation job and translation segment model.
+- Add glossary and style guide model.
+- Add translation review item model.
+- Draft translation prompt contract.
+- Add side-by-side reading UI placeholder.
+
+## Phase 6 - Minimal Workspace UI
 
 - SvelteKit shell with sidebar and project routes.
 - Settings page for BYOK.
@@ -68,4 +77,3 @@ Muc tieu: bat dau rewrite bang nen tang dung, chua port UI lon qua som.
 - No full map renderer in the first milestone.
 - No billing system until BYOK and quota model are stable.
 - No multi-organization enterprise features until single-user hosted workspace works.
-

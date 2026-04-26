@@ -2,6 +2,10 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
+## Giấy Phép
+
+Repo này được publish source-available theo PolyForm Noncommercial License 1.0.0. Bạn được dùng, đọc, chỉnh sửa và phân phối lại cho mục đích phi thương mại theo điều khoản giấy phép. Mọi mục đích thương mại đều bị cấm nếu chưa có giấy phép thương mại riêng từ chủ sở hữu bản quyền.
+
 NovelGraph AI Platform là dự án rewrite mới, lấy cảm hứng từ AI Reader V2. Mục tiêu là biến truyện dài và tiểu thuyết thành các lớp dữ liệu có cấu trúc: sơ đồ quan hệ nhân vật, bản đồ thế giới, timeline, bách khoa nhân vật và địa điểm, chỉ mục cảnh, cùng chat RAG có dẫn chứng từ văn bản gốc.
 
 Định hướng sản phẩm:
@@ -16,6 +20,7 @@ NovelGraph AI Platform là dự án rewrite mới, lấy cảm hứng từ AI Re
 - Trích xuất fact từ từng chương, có evidence span gắn với văn bản gốc.
 - Tạo hồ sơ cho nhân vật, địa điểm, tổ chức, vật phẩm và khái niệm.
 - Tạo graph quan hệ, bản đồ thế giới, timeline, phe phái, chỉ mục cảnh và encyclopedia.
+- Dịch truyện song song với phân tích AI, giữ glossary và alignment với văn bản gốc.
 - Hỗ trợ project riêng tư trên website và project offline trên desktop.
 - Cho phép người dùng tự dùng API key của OpenAI, Anthropic, DeepSeek, Gemini, Qwen hoặc provider tương thích.
 - Giữ UI theo hướng công cụ làm việc: sidebar, tab, split pane, bảng dữ liệu và progress panel.
@@ -52,7 +57,7 @@ Import -> Split -> Prescan -> ExtractChapter[n] -> Normalize -> Aggregate
 
 ## Trạng Thái Hiện Tại
 
-Repo đang ở giai đoạn planning/foundation. Chưa có app code chạy thực tế.
+Repo đang ở giai đoạn planning/foundation. Hiện đã có Rust backend foundation với các crate `core`, `storage`, `api`, endpoint Axum `/health`, migration/repository SQLite, API project, preview/confirm import truyện, lưu source segment, tạo analysis job pending, tạo translation job và lưu job event. Ứng dụng sản phẩm vẫn chưa dùng được thực tế.
 
 Hiện đã có:
 
@@ -67,11 +72,13 @@ Hiện đã có:
 
 - [README English](README.md)
 - [Roadmap](ROADMAP.md)
+- [Checklist triển khai](docs/checklists/README.md)
 - [Implementation plan](docs/implementation-plan.md)
 - [Product requirements](docs/product-requirements.md)
 - [Data model](docs/data-model.md)
 - [API contract](docs/api-contract.md)
 - [Deployment model](docs/deployment.md)
+- [Thiết kế dịch truyện song song](docs/translation/README.md)
 - [BYOK security notes](docs/security-byok.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)

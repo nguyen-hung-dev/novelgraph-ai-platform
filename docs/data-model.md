@@ -1,6 +1,6 @@
 # Data Model
 
-This document sketches the target logical data model. It is not a final migration.
+This document sketches the target logical data model. The first SQLite/PostgreSQL migration now implements the foundation identity, project, novel source, analysis job, job event, translation job, glossary, and usage tables.
 
 ## Principles
 
@@ -24,9 +24,15 @@ project_shares
 ```text
 novels
 chapters
-chapter_segments
 source_files
+source_segments
 ```
+
+Current implementation:
+
+- `chapters` stores source chapter text.
+- `source_segments` stores paragraph-level spans with `chapter_id`, `segment_index`, `start_char`, `end_char`, `segment_kind`, and `text`.
+- `source_files` is still planned.
 
 ## Analysis Jobs
 
@@ -35,8 +41,13 @@ analysis_jobs
 analysis_runs
 prompt_runs
 llm_usage_events
-analysis_events
+job_events
 ```
+
+Current implementation:
+
+- `analysis_jobs` stores pending analysis jobs created by import confirmation.
+- `job_events` stores sequenced events for both analysis and translation jobs.
 
 ## Evidence and Observations
 
@@ -46,6 +57,24 @@ observations
 review_items
 user_corrections
 ```
+
+## Translation
+
+```text
+translation_jobs
+translation_segments
+glossary_entries
+style_profiles
+translation_review_items
+```
+
+Rules:
+
+- `translation_segments` reference `source_segments`.
+- Translation output is versioned.
+- Approved glossary entries can be used by both translation and analysis.
+- Source text remains authoritative for evidence.
+- The first implementation persists `translation_jobs`, `translation_segments`, `glossary_entries`, `style_profiles`, and `translation_review_items`; execution and review workflows are still planned.
 
 Observation example:
 
@@ -97,4 +126,3 @@ Rules:
 - Do not store raw keys unencrypted.
 - Do not expose encrypted blobs to frontend.
 - Prefer session-only keys for the first web MVP.
-

@@ -4,6 +4,10 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
+## License
+
+This repository is source-available under the PolyForm Noncommercial License 1.0.0. Noncommercial use, study, modification, and redistribution are allowed under the license terms. Commercial use is prohibited unless you obtain a separate commercial license from the copyright holder.
+
 NovelGraph AI Platform is a planned rewrite of an AI-powered novel analysis workspace. It will turn long-form fiction into character knowledge graphs, story maps, timelines, entity encyclopedias, scene indexes, and retrieval-augmented chat.
 
 The product direction is hybrid:
@@ -22,6 +26,7 @@ AI novel analysis, novel knowledge graph, story map generator, character relatio
 - Extract grounded facts from each chapter with evidence spans.
 - Build entity profiles for characters, locations, organizations, items, and concepts.
 - Generate relationship graphs, world maps, timelines, factions, scene indexes, and encyclopedias.
+- Translate novels in parallel with analysis while preserving glossary and source alignment.
 - Support private hosted projects and offline desktop projects.
 - Let web users bring their own LLM API key instead of forcing platform-funded inference.
 - Keep the UI dense, practical, and workspace-oriented like a desktop tool.
@@ -86,18 +91,20 @@ The first implementation milestone should not start with visualization. It shoul
 
 ## Current Status
 
-Planning repository initialized. No application code has been generated yet.
+Planning repository initialized. The Rust backend foundation now includes `core`, `storage`, and `api` crates, an Axum `/health` endpoint, SQLite migrations/repository code, project endpoints, novel import preview/confirm, source segment persistence, pending analysis jobs, translation job creation, and persisted job events. The product application is not usable yet.
 
 See:
 
 - [Implementation plan](docs/implementation-plan.md)
 - [Product requirements](docs/product-requirements.md)
 - [Roadmap](ROADMAP.md)
+- [Implementation checklists](docs/checklists/README.md)
 - [Development guide](docs/development.md)
 - [API contract](docs/api-contract.md)
 - [Data model](docs/data-model.md)
 - [Deployment model](docs/deployment.md)
 - [Testing strategy](docs/testing-strategy.md)
+- [Parallel translation design](docs/translation/README.md)
 - [BYOK security notes](docs/security-byok.md)
 - [ADR 0001: Hybrid web and desktop stack](docs/adr/0001-hybrid-web-desktop-stack.md)
 - [Contributing](CONTRIBUTING.md)

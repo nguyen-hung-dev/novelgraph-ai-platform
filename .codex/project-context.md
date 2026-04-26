@@ -17,6 +17,7 @@ The rewrite should not copy the old architecture directly. It should preserve th
 - User-provided LLM API keys.
 - Desktop/offline mode.
 - Safer evidence-grounded extraction.
+- Parallel translation with glossary and source alignment.
 - Cleaner storage and job orchestration.
 
 ## Target Stack
@@ -48,6 +49,7 @@ Expected primary screens:
 - Timeline.
 - Encyclopedia.
 - Chat.
+- Translation.
 - Review queue.
 - Settings/BYOK.
 
@@ -62,5 +64,5 @@ Store:
 - Observations.
 - Entity aliases and mentions.
 - Review decisions.
+- Translation segments and glossary revisions.
 - Generated projections/cache for UI.
-

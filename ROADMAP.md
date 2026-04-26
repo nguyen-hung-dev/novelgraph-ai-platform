@@ -11,21 +11,22 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [x] First ADR.
 - [x] GitHub workflow and templates.
 - [x] Codex operating context.
-- [ ] License selection.
-- [ ] Rust workspace decision.
+- [x] Layered implementation checklists.
+- [x] License selection.
+- [x] Rust workspace decision.
 - [ ] SvelteKit package manager decision.
 - [ ] API contract generation strategy.
 
 ## Phase 1 - Backend Foundation
 
-- [ ] Rust workspace.
-- [ ] Axum health endpoint.
-- [ ] Config modes: `web`, `desktop`, `demo`.
-- [ ] SQLx migrations.
-- [ ] SQLite local development database.
-- [ ] PostgreSQL-ready schema.
-- [ ] Typed API errors.
-- [ ] Job event contract.
+- [x] Rust workspace.
+- [x] Axum health endpoint.
+- [x] Config modes: `web`, `desktop`, `demo`.
+- [x] SQLx migrations.
+- [x] SQLite local development database.
+- [x] PostgreSQL-ready schema.
+- [x] Typed API errors.
+- [x] Job event contract.
 
 ## Phase 2 - BYOK and Provider Layer
 
@@ -41,9 +42,9 @@ This roadmap is intentionally foundation-first. The project should not rush into
 ## Phase 3 - Import and Chapter Splitting
 
 - [ ] TXT/Markdown upload.
-- [ ] Chapter split preview.
-- [ ] Confirm import flow.
-- [ ] Source text storage.
+- [x] Chapter split preview.
+- [x] Confirm import flow.
+- [x] Source text storage.
 - [ ] Regression fixtures.
 
 ## Phase 4 - Evidence-First Extraction
@@ -54,7 +55,18 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [ ] Review item generation.
 - [ ] Old-vs-new sample regression harness.
 
-## Phase 5 - Minimal Workspace UI
+## Phase 5 - Parallel Translation
+
+- [x] Source segment model shared by analysis and translation.
+- [x] Translation job model.
+- [x] Translation segment persistence.
+- [x] Glossary entry model.
+- [x] Style guide model.
+- [x] Translation review items.
+- [ ] Side-by-side source/target reading plan.
+- [ ] Translation quality checks.
+
+## Phase 6 - Minimal Workspace UI
 
 - [ ] SvelteKit shell.
 - [ ] Project/bookshelf view.
@@ -62,4 +74,3 @@ This roadmap is intentionally foundation-first. The project should not rush into
 - [ ] Analysis progress view.
 - [ ] BYOK settings view.
 - [ ] Review queue view.
-

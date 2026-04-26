@@ -20,6 +20,10 @@ jobs:
           test -f README.md
           test -f README.vi.md
           test -f AGENTS.md
+          test -f Cargo.toml
+          test -f crates/core/Cargo.toml
+          test -f crates/storage/Cargo.toml
+          test -f crates/api/Cargo.toml
           test -f CONTRIBUTING.md
           test -f SECURITY.md
           test -f ROADMAP.md
@@ -33,6 +37,21 @@ jobs:
           test -f docs/deployment.md
           test -f docs/testing-strategy.md
           test -f docs/security-byok.md
+          test -f docs/translation/README.md
+          test -f docs/translation/parallel-translation-design.md
+          test -f docs/translation/glossary-style-guide.md
+          test -f docs/translation/translation-quality-strategy.md
+          test -f docs/checklists/README.md
+          test -f docs/checklists/00-master-checklist.md
+          test -f docs/checklists/01-foundation-checklist.md
+          test -f docs/checklists/02-backend-checklist.md
+          test -f docs/checklists/03-byok-ai-checklist.md
+          test -f docs/checklists/04-import-splitting-checklist.md
+          test -f docs/checklists/05-extraction-evidence-checklist.md
+          test -f docs/checklists/06-frontend-workspace-checklist.md
+          test -f docs/checklists/07-desktop-local-checklist.md
+          test -f docs/checklists/08-release-readiness-checklist.md
+          test -f docs/checklists/09-translation-parallel-checklist.md
           test -f docs/adr/0001-hybrid-web-desktop-stack.md
 
       - name: Check no obvious committed secrets

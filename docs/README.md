@@ -7,6 +7,8 @@ This directory contains planning and architecture documents for NovelGraph AI Pl
 - [Implementation plan](implementation-plan.md)
 - [Product requirements](product-requirements.md)
 - [Roadmap](../ROADMAP.md)
+- [Implementation checklists](checklists/README.md)
+- [Translation checklist](checklists/09-translation-parallel-checklist.md)
 
 ## Technical Design
 
@@ -15,6 +17,7 @@ This directory contains planning and architecture documents for NovelGraph AI Pl
 - [Development guide](development.md)
 - [Deployment model](deployment.md)
 - [Testing strategy](testing-strategy.md)
+- [Parallel translation design](translation/README.md)
 - [BYOK security notes](security-byok.md)
 
 ## ADRs

@@ -21,6 +21,15 @@ Testing should focus on correctness, privacy, and regression safety before UI po
 - Review item generation for low-confidence facts.
 - Retry and partial failure behavior.
 
+## Translation Tests
+
+- Segment alignment is preserved.
+- Approved glossary terms are applied.
+- Target language is correct.
+- Markdown structure is preserved where possible.
+- Translation does not add plot facts missing from source.
+- Translation review items are generated for uncertain terms.
+
 ## Frontend Tests
 
 - Route shell renders.
@@ -40,6 +49,7 @@ Fixture goals:
 - Relationship extraction.
 - Timeline projection.
 - Review item behavior.
+- Translation glossary consistency.
 
 ## CI Expectations
 
@@ -50,4 +60,3 @@ Early CI should check:
 - Markdown links where practical.
 - Rust tests after Rust workspace exists.
 - Frontend checks after SvelteKit app exists.
-

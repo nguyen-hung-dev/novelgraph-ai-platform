@@ -20,7 +20,14 @@ Goal: create the first runnable Rust backend with storage foundations.
 - projects
 - novels
 - chapters
+- source_segments
 - analysis_jobs
+- job_events
+- translation_jobs
+- translation_segments
+- glossary_entries
+- style_profiles
+- translation_review_items
 - llm_provider_configs
 - llm_usage_events
 
@@ -36,4 +43,3 @@ Goal: create the first runnable Rust backend with storage foundations.
 - `/health` returns mode and version.
 - Migrations run against SQLite.
 - Schema design document is updated.
-
