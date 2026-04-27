@@ -7,19 +7,16 @@
 	import { page } from '$app/state';
 	import type { LayoutData } from './$types';
 	import {
-		BookMarked,
-		Cpu,
-		KeyRound,
 		LayoutGrid,
 		Monitor,
 		Moon,
-		RadioTower,
-		Settings2,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Settings,
 		Sparkles,
 		Sun
 	} from 'lucide-svelte';
 	import favicon from '$lib/assets/favicon.svg';
-	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { isNavActive, type MatchMode, type RouteHref } from '$lib/workspace/navigation';
 
 	let { data, children }: { data: LayoutData; children: Snippet } = $props();
@@ -29,7 +26,6 @@
 		href: RouteHref;
 		match: MatchMode;
 		icon: typeof LayoutGrid;
-		meta: string;
 	};
 
 	const workspaceLinks: WorkspaceLink[] = [
@@ -37,37 +33,22 @@
 			label: 'Projects',
 			href: '/projects',
 			match: 'exact' as const,
-			icon: LayoutGrid,
-			meta: 'Bookshelf and project entry points'
-		},
-		{
-			label: 'Settings',
-			href: '/settings',
-			match: 'prefix' as const,
-			icon: Settings2,
-			meta: 'Workspace storage, desktop parity, release notes'
-		},
-		{
-			label: 'BYOK',
-			href: '/settings/byok',
-			match: 'prefix' as const,
-			icon: KeyRound,
-			meta: 'Session key boundary and provider forms'
+			icon: LayoutGrid
 		}
 	];
-
-	const totalChapterCount = $derived(
-		data.projectCards.reduce((total, project) => total + project.chapterCount, 0)
-	);
-	const totalWordCount = $derived(
-		data.projectCards.reduce((total, project) => total + project.wordCount, 0)
-	);
-	const firstProjectId = $derived(data.projectNav[0]?.id ?? null);
+	const settingsLink: WorkspaceLink = {
+		label: 'Settings',
+		href: '/settings',
+		match: 'exact' as const,
+		icon: Settings
+	};
 
 	type ColorMode = 'light' | 'dark' | 'system';
 
 	const colorModeStorageKey = 'novelgraph:color-mode';
+	const sidebarCollapsedStorageKey = 'novelgraph:sidebar-collapsed';
 	let colorMode = $state<ColorMode>('system');
+	let isSidebarCollapsed = $state(false);
 
 	function applyColorMode(mode: ColorMode) {
 		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -87,6 +68,21 @@
 		applyColorMode(mode);
 	}
 
+	function rotateColorMode() {
+		const nextMode: ColorMode =
+			colorMode === 'system' ? 'light' : colorMode === 'light' ? 'dark' : 'system';
+		updateColorMode(nextMode);
+	}
+
+	function updateSidebarCollapsed(collapsed: boolean) {
+		isSidebarCollapsed = collapsed;
+		if (!browser) {
+			return;
+		}
+
+		localStorage.setItem(sidebarCollapsedStorageKey, String(collapsed));
+	}
+
 	onMount(() => {
 		if (!browser) {
 			return;
@@ -97,6 +93,7 @@
 			colorMode = savedMode;
 		}
 
+		isSidebarCollapsed = localStorage.getItem(sidebarCollapsedStorageKey) === 'true';
 		applyColorMode(colorMode);
 
 		const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -119,22 +116,33 @@
 	<title>NovelGraph AI Platform</title>
 </svelte:head>
 
-<div class="workspace-shell">
-	<aside class="workspace-sidebar">
+<div class:workspace-shell--sidebar-collapsed={isSidebarCollapsed} class="workspace-shell">
+	<aside aria-label="Workspace sidebar" class="workspace-sidebar">
 		<section class="brand-block">
 			<div class="brand-row">
-				<div class="brand-mark">
-					<Sparkles size={18} strokeWidth={1.9} />
+				<div class="brand-identity">
+					<div class="brand-mark">
+						<Sparkles size={18} strokeWidth={1.9} />
+					</div>
+					<div class="brand-text">
+						<div class="eyebrow">Workspace UI</div>
+						<div class="brand-title">NovelGraph AI Platform</div>
+					</div>
 				</div>
-				<div>
-					<div class="eyebrow">Workspace UI</div>
-					<div class="brand-title">NovelGraph AI Platform</div>
-				</div>
+				<button
+					aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+					class="icon-button sidebar-toggle"
+					onclick={() => updateSidebarCollapsed(!isSidebarCollapsed)}
+					title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+					type="button"
+				>
+					{#if isSidebarCollapsed}
+						<PanelLeftOpen size={16} strokeWidth={1.9} />
+					{:else}
+						<PanelLeftClose size={16} strokeWidth={1.9} />
+					{/if}
+				</button>
 			</div>
-			<p class="brand-copy">
-				Local-first workspace for novel import, chapter reading, analysis jobs, and later
-				translation review.
-			</p>
 		</section>
 
 		<section class="nav-group">
@@ -147,85 +155,28 @@
 						class:is-active={isNavActive(page.url.pathname, item)}
 						class="nav-link"
 						href={resolve(item.href)}
+						title={item.label}
 					>
 						<item.icon size={16} strokeWidth={1.9} />
 						<div class="nav-link__body">
 							<span class="nav-link__title">{item.label}</span>
-							<span class="nav-link__meta">{item.meta}</span>
 						</div>
 					</a>
 				{/each}
 			</div>
 		</section>
 
-		<section class="project-rail">
-			<div class="nav-label">
-				<span>Projects</span>
-				<StatusPill
-					label={`${data.projectNav.length} loaded`}
-					tone={data.apiError ? 'warning' : 'teal'}
-				/>
+		<a
+			class:is-active={isNavActive(page.url.pathname, settingsLink)}
+			class="nav-link sidebar-settings-link"
+			href={resolve(settingsLink.href)}
+			title={settingsLink.label}
+		>
+			<settingsLink.icon size={16} strokeWidth={1.9} />
+			<div class="nav-link__body">
+				<span class="nav-link__title">{settingsLink.label}</span>
 			</div>
-			{#if data.projectNav.length > 0}
-				<div class="project-stack">
-					{#each data.projectNav as project (project.id)}
-						<a
-							class:is-active={page.url.pathname.startsWith(`/projects/${project.id}`)}
-							class="project-link"
-							href={resolve(`/projects/${project.id}`)}
-						>
-							<BookMarked size={16} strokeWidth={1.9} />
-							<div class="project-link__body">
-								<span class="project-link__title">{project.name}</span>
-								<span class="project-link__meta">{project.stage}</span>
-							</div>
-							<span class="project-link__count">{project.chapterCount} ch</span>
-						</a>
-					{/each}
-				</div>
-			{:else}
-				<div class="empty-note">Chưa có project nào được nạp từ backend.</div>
-			{/if}
-		</section>
-
-		<section class="sidebar-footer">
-			<div class="nav-label">
-				<span>Runtime</span>
-			</div>
-			<div class="chip-row">
-				<StatusPill label="Local-first" tone="teal" />
-				<StatusPill label="Rust API" tone={data.apiError ? 'warning' : 'good'} />
-				<StatusPill label="SvelteKit" />
-			</div>
-			<div class="info-stack">
-				<div class="event-row">
-					<Cpu size={16} strokeWidth={1.8} />
-					<div>
-						<div class="nav-link__title">{totalChapterCount} chapters visible</div>
-						<div class="nav-link__meta">
-							{totalWordCount.toLocaleString()} words across the loaded workspace snapshot
-						</div>
-					</div>
-				</div>
-				<div class="event-row">
-					<RadioTower size={16} strokeWidth={1.8} />
-					<div>
-						<div class="nav-link__title">
-							{data.apiError ? 'API unavailable' : 'Workspace API connected'}
-						</div>
-						<div class="nav-link__meta">
-							llama.cpp stays first; hosted providers remain behind the BYOK boundary
-						</div>
-					</div>
-				</div>
-				{#if data.apiError}
-					<div class="warning-box">
-						<div class="nav-link__title">Connection note</div>
-						<div class="nav-link__meta">{data.apiError}</div>
-					</div>
-				{/if}
-			</div>
-		</section>
+		</a>
 	</aside>
 
 	<div class="workspace-body">
@@ -246,51 +197,21 @@
 					type="search"
 				/>
 				<div class="toolbar-stack">
-					<div aria-label="Color mode" class="icon-toggle-group" role="group">
-						<button
-							aria-label="Light mode"
-							class:is-active={colorMode === 'light'}
-							class="icon-button"
-							onclick={() => updateColorMode('light')}
-							title="Light mode"
-							type="button"
-						>
-							<Sun size={16} strokeWidth={1.9} />
-						</button>
-						<button
-							aria-label="Dark mode"
-							class:is-active={colorMode === 'dark'}
-							class="icon-button"
-							onclick={() => updateColorMode('dark')}
-							title="Dark mode"
-							type="button"
-						>
-							<Moon size={16} strokeWidth={1.9} />
-						</button>
-						<button
-							aria-label="System mode"
-							class:is-active={colorMode === 'system'}
-							class="icon-button"
-							onclick={() => updateColorMode('system')}
-							title="System mode"
-							type="button"
-						>
-							<Monitor size={16} strokeWidth={1.9} />
-						</button>
-					</div>
-					<a
-						class="toolbar-link"
-						href={firstProjectId
-							? resolve('/projects/[projectId]/analysis', { projectId: firstProjectId })
-							: resolve('/projects')}
+					<button
+						aria-label={`Color mode: ${colorMode}`}
+						class="icon-button"
+						onclick={rotateColorMode}
+						title={`Color mode: ${colorMode}`}
+						type="button"
 					>
-						<Cpu size={16} strokeWidth={1.8} />
-						Local job view
-					</a>
-					<a class="toolbar-link" href={resolve('/settings/byok')}>
-						<KeyRound size={16} strokeWidth={1.8} />
-						Key boundary
-					</a>
+						{#if colorMode === 'light'}
+							<Sun size={16} strokeWidth={1.9} />
+						{:else if colorMode === 'dark'}
+							<Moon size={16} strokeWidth={1.9} />
+						{:else}
+							<Monitor size={16} strokeWidth={1.9} />
+						{/if}
+					</button>
 				</div>
 			</div>
 		</header>

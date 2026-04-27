@@ -90,6 +90,10 @@ export type StoryExtractionFieldValue = {
 	field_id: string;
 	value: string;
 	confidence: number | null;
+	related_character: string | null;
+	relationship_type: string | null;
+	relationship_label: string | null;
+	relationship_direction: string | null;
 	evidence: StoryEvidenceSpan[];
 	created_at: string;
 	updated_at: string;

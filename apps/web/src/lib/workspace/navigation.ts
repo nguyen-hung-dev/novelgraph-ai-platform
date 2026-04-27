@@ -3,7 +3,6 @@ export type MatchMode = 'exact' | 'prefix';
 export type RouteHref =
 	| '/projects'
 	| '/settings'
-	| '/settings/byok'
 	| `/projects/${string}`
 	| `/projects/${string}/import`
 	| `/projects/${string}/reading`

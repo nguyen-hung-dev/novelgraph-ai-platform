@@ -8,6 +8,27 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.10.0] - 2026-04-27
+
+### Changed
+
+- Added a persistent collapsible workspace sidebar rail so the desktop workspace can switch between full navigation and icon-only mode.
+- Compact the workspace topbar into a single-row rail on desktop.
+- Made the workspace sidebar sticky on desktop while preserving normal stacked behavior on mobile.
+- Replaced the three-button color mode control with one cycling icon button for system, light, and dark modes.
+- Simplified sidebar navigation labels by removing per-link metadata and moving Settings to the bottom gear item of the workspace sidebar.
+- Merged BYOK controls into the main Settings grid and removed the standalone Settings page header.
+- Changed character mention extraction so the local LLM no longer returns highlight offsets; the backend now scans confirmed character surfaces with Unicode character-boundary checks and only asks the local LLM to confirm ambiguous occurrence contexts.
+- Simplified the character extraction pipeline back to three stable passes: identity aliases, backend-scanned mentions, and minimal character fields, while keeping relationships out of character fields for a separate extraction flow.
+- Tightened the character fields prompt so each field request has one explicit target character and must return an empty array when evidence does not clearly belong to that target.
+- Changed character field extraction to send target-marked context snippets instead of the full chunk so local models are less likely to assign another character's fields to the active target.
+- Simplified the Reading character detail overlay by hiding confidence/reason text and keeping alias fields only in the mention chips.
+- Added cross-chapter character identity resolution inside the analysis pipeline so later chapter names and aliases can merge into existing character records instead of creating unrelated chapter-local identities.
+- Removed character `Ghi chú` and `Trạng thái` fields from the extraction pipeline; the current character field pass now keeps only clearly evidenced appearance fields.
+- Documented the next candidate-based character identity merge pass for typo, near-name, and alias-pass failure cases before new character records are created.
+- Updated app version metadata to `0.10.0`.
+- Updated storage schema version to `2026-04-27.foundation.v6`.
+
 ## [0.9.0] - 2026-04-27
 
 ### Added

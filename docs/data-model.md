@@ -77,6 +77,7 @@ story_extraction_values
 Rules:
 
 - `story_extraction_records`, `story_extraction_fields`, and `story_extraction_values` currently persist the focused `character` extraction slice.
+- `story_extraction_values` includes optional relationship metadata columns (`related_character`, `relationship_type`, `relationship_label`, `relationship_direction`) so future relationship extraction can use typed values instead of free-form character fields.
 - `user_corrections` records who or what changed raw text, aliases, entities, relationships, glossary entries, or translation segments.
 - `stale_marks` records dependent data that needs rerun, refresh, or human review after a correction.
 - AI-generated observations and user-corrected observations must remain distinguishable.

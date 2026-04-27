@@ -261,16 +261,32 @@ CHAPTER_TEXT
 Trích xuất nhân vật trong đoạn. Với mỗi nhân vật, trả name và aliases.
 Nếu đoạn nói một chuỗi là tên gọi, biệt danh, cách gọi trong cộng đồng, hoặc tên chính thức của cùng người, hãy gộp vào cùng object.
 name là tên chính hoặc chuỗi định danh tối thiểu tự đứng được.
-aliases là các tên gọi khác, biệt danh, danh xưng khác của cùng nhân vật.
+aliases là các tên gọi khác của cùng nhân vật, mỗi alias phải có loại rõ ràng.
 Loại bỏ từ chỉ định, đại từ, sở hữu, quan hệ chủ sở hữu và ngữ cảnh xung quanh.
 Giữ chuỗi alias ngắn nhất tự đứng được.
 Không lấy nhóm người chung nếu đoạn không định danh một người cụ thể.
+Không đưa tên nhân vật khác, vai quan hệ giữa hai nhân vật, hoặc người thân của nhân vật hiện tại vào aliases.
+Nếu đoạn chỉ nói quan hệ giữa nhân vật hiện tại và một nhân vật khác, bỏ qua trong identity pass; quan hệ A-B thuộc pipeline Relationship riêng.
+alias_type phải là một trong các giá trị sau:
+- "nickname" cho biệt danh, tên gọi quen, tên gọi mô tả gắn với nhân vật.
+- "other_alias" cho tên gọi khác chưa thuộc nhóm trên.
+Không dùng alias cho quan hệ, họ hàng, xưng hô hoặc vai trò giữa hai nhân vật; các thông tin đó thuộc pipeline Relationship riêng.
+alias_label phải là nhãn tiếng Việt có dấu phù hợp với alias_type.
+is_primary=true nếu alias là tên gọi phụ quan trọng hoặc được nhắc như cách gọi chính trong đoạn; ngược lại false.
+Không đưa lại name vào aliases.
 
 Chỉ trả JSON array object trực tiếp:
 [
   {{
     "name": "Tên chính hoặc định danh tối thiểu",
-    "aliases": ["Tên gọi khác"]
+    "aliases": [
+      {{
+        "text": "Tên gọi khác",
+        "alias_type": "nickname",
+        "alias_label": "Biệt danh",
+        "is_primary": false
+      }}
+    ]
   }}
 ]"#,
             chapter_num = input.chapter_num,
@@ -352,6 +368,77 @@ Chỉ trả JSON array trực tiếp:
     }
 }
 
+pub fn build_character_occurrence_confirmation_prompt(
+    input: &DraftExtractionInput,
+    character_json: &str,
+    surface: &str,
+) -> DraftExtractionPrompt {
+    let title = input
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Untitled chapter");
+    let source_language = input
+        .source_language
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let prior_context = input
+        .prior_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("No prior context is provided.");
+
+    DraftExtractionPrompt {
+        schema_version: CHARACTER_EXTRACTION_SCHEMA_VERSION,
+        system_prompt: character_system_prompt().to_string(),
+        user_prompt: format!(
+            r#"Chapter number: {chapter_num}
+Chapter title: {title}
+Source language: {source_language}
+
+Allowed prior context:
+{prior_context}
+
+Character loaded from DB or current run:
+{character_json}
+
+Surface scanned by backend:
+{surface}
+
+Occurrence context:
+<<<CONTEXT
+{context_text}
+CONTEXT
+
+Backend đã exact-scan surface trong raw text và tự tính offset. Bạn không được trả offset.
+Trong Occurrence context, đúng occurrence đang xét được bọc bằng [[ và ]].
+Chỉ xác nhận surface trong context này có đang nhắc đến đúng nhân vật trong Character loaded from DB hay không.
+Trả false nếu surface chỉ là danh từ chung, địa danh, vật phẩm, động từ/tính từ, nhóm người chung, hoặc đang nhắc đến người khác.
+Trả true nếu surface là tên, biệt danh, danh xưng, vai trò gia đình/xã hội, hoặc cách gọi ngắn của đúng nhân vật trong context này.
+
+Chỉ trả JSON array đúng một object:
+[
+  {{
+    "is_character_mention": true,
+    "confidence": 0.0,
+    "reason": "Lý do ngắn"
+  }}
+]"#,
+            chapter_num = input.chapter_num,
+            title = title,
+            source_language = source_language,
+            prior_context = prior_context,
+            character_json = character_json,
+            surface = surface,
+            context_text = input.text
+        ),
+    }
+}
+
 pub fn build_character_fields_prompt(
     input: &DraftExtractionInput,
     character_json: &str,
@@ -386,29 +473,54 @@ Source language: {source_language}
 Allowed prior context:
 {prior_context}
 
-Character loaded from DB:
+TARGET_CHARACTER_JSON:
 {character_json}
 
-Current chapter chunk:
-<<<CHAPTER_TEXT
-{chapter_text}
-CHAPTER_TEXT
+TARGET TASK:
+Bạn chỉ đang trích xuất field cho đúng một nhân vật duy nhất trong TARGET_CHARACTER_JSON.
+Không trích xuất field cho bất kỳ nhân vật nào khác trong TARGET_CONTEXTS.
 
-Trích xuất các field nhỏ chỉ cho nhân vật trong Character loaded from DB.
+TARGET_CONTEXTS:
+<<<TARGET_CONTEXTS
+{chapter_text}
+TARGET_CONTEXTS
+
+TARGET_CONTEXTS đã được backend chọn từ đoạn hiện tại. Occurrence của target được đánh dấu bằng [[...]].
+
+Trích xuất các field nhỏ chỉ cho nhân vật thật được định danh bởi các occurrence [[...]] trong TARGET_CONTEXTS.
 Không trả mention trong bước này.
 Không trích xuất nhân vật khác làm record riêng.
-field_key phải là ASCII snake_case ổn định.
-field_label phải là tiếng Việt có dấu để hiển thị UI.
-value phải ngắn gọn và được hỗ trợ bởi CHAPTER_TEXT.
-Quan hệ, sở hữu, vai trò, trạng thái, tính cách, khả năng, ngoại hình, mục tiêu, hành động hoặc bối cảnh đều có thể trở thành field nếu đoạn hỗ trợ.
+TARGET_CHARACTER_JSON là owner duy nhất của mọi field trả về. Nếu fact thuộc người khác, trả [] hoặc bỏ value đó.
+Fields pass chỉ được trả một trong các field_key sau:
+- "appearance" với field_label "Ngoại hình".
+Không trả field về tên, họ tên, tên thật, tên gọi khác, biệt danh, danh xưng, quan hệ, trạng thái, ghi chú, năng lực, vật phẩm, tổ chức, địa điểm, sự kiện hoặc mục tiêu.
+
+Luật owner bắt buộc:
+- Nếu context mô tả "một người", "vị khách", "người đó", "ông ta", rồi xác định người đó là [[target]], mô tả đó thuộc target. Được lấy mô tả, nhưng không lấy nhãn quan hệ.
+- Nếu [[target]] chỉ là cụm quan hệ, họ hàng, xưng hô, người được nhắc tới, người được chào, người được nghĩ tới, người được nhìn thấy, hoặc đối tượng của hành động/cảm xúc của nhân vật khác, bỏ qua candidate đó.
+- Không lấy cảm xúc, trạng thái, lời nói, hành động, thói quen hoặc sự kiện thoáng qua.
+- Nếu candidate là quan hệ A-B, bỏ qua vì Relationship là pipeline riêng.
+- Nếu candidate là cảm xúc, suy nghĩ, hành động hoặc ý kiến của nhân vật không được đánh dấu [[...]], bỏ qua.
+- Nếu candidate thuộc bất kỳ nhân vật không được đánh dấu [[...]], bỏ qua.
+- Nếu chỉ có quan hệ, cách gọi, trạng thái hoặc ghi chú về target mà không có ngoại hình rõ ràng của target, trả [].
+- Không cố tạo field để lấp output. Không chắc thì trả [].
+
+Field hợp lệ duy nhất:
+- appearance: cơ thể, khuôn mặt, trang phục, mô tả nhìn thấy được của target.
+
+field_key phải đúng "appearance", không tự tạo field_key khác.
+field_label phải đúng "Ngoại hình".
+value phải ngắn gọn và được hỗ trợ bởi TARGET_CONTEXTS.
+Mỗi value bắt buộc có evidence.quote rõ trong TARGET_CONTEXTS.
+Mỗi evidence.reason phải bắt đầu bằng "Thuộc TARGET vì" và giải thích vì sao quote đó mô tả chính target, không chỉ giải thích ý nghĩa của value.
 Nếu thông tin chưa chắc chắn, dùng confidence thấp hơn và giải thích trong evidence.reason.
-Tối đa 8 field, mỗi field tối đa 2 values.
+Tối đa 1 field, tối đa 2 values.
 
 Chỉ trả JSON array trực tiếp:
 [
   {{
-    "field_key": "ascii_snake_case_key",
-    "field_label": "Nhãn tiếng Việt",
+    "field_key": "appearance",
+    "field_label": "Ngoại hình",
     "values": [
       {{
         "value": "Giá trị",

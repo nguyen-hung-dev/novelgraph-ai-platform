@@ -5,12 +5,7 @@
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import type { AnalysisRunSnapshot } from '$lib/api/types';
-	import {
-		formatTimestamp,
-		jobStatusTone,
-		prettyEventLabel,
-		summarizeEventPayload
-	} from '$lib/workspace/presenters';
+	import { formatTimestamp, jobStatusTone } from '$lib/workspace/presenters';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
@@ -58,12 +53,10 @@
 
 	const currentRun = $derived(runSnapshot ?? data.analysisRun);
 	const latestJob = $derived(currentRun?.job ?? data.workspace.latest_analysis_job);
-	const latestEvents = $derived(data.workspace.latest_job_events);
 	const completedCount = $derived(currentRun?.completed_chapters ?? 0);
 	const totalCount = $derived(currentRun?.total_chapters ?? data.workspace.chapters.length);
 	const failedCount = $derived(currentRun?.failed_chapters ?? 0);
 	const pendingCount = $derived(currentRun?.pending_chapters ?? totalCount);
-	const characterRecords = $derived(currentRun?.character_records ?? []);
 	const progressPercent = $derived(
 		totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
 	);
@@ -150,10 +143,6 @@
 		return range.from_chapter_num === range.to_chapter_num
 			? `chương ${range.from_chapter_num}`
 			: `chương ${range.from_chapter_num} -> ${range.to_chapter_num}`;
-	}
-
-	function confidenceLabel(confidence: number | null) {
-		return confidence === null ? 'n/a' : `${Math.round(confidence * 100)}%`;
 	}
 
 	async function requestRun(
@@ -432,26 +421,6 @@
 				</div>
 			{/if}
 		</Panel>
-
-		<div class="list-stack">
-			<Panel subtitle="Operator-readable event trail" title="Progress events">
-				{#if latestEvents.length > 0}
-					<div class="event-stack">
-						{#each latestEvents as event (event.id)}
-							<div class="event-row">
-								<div>
-									<div class="nav-link__title">{prettyEventLabel(event.event_type)}</div>
-									<div class="nav-link__meta">{summarizeEventPayload(event)}</div>
-								</div>
-								<StatusPill label={`#${event.sequence}`} />
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="empty-note">Chưa có event nào cho job này.</div>
-				{/if}
-			</Panel>
-		</div>
 	</section>
 
 	<Panel subtitle="Chapter-level run state" title="Chapter progress">
@@ -501,70 +470,4 @@
 		{/if}
 	</Panel>
 
-	<Panel subtitle="Parsed records stored from the character extraction schema" title="Nhân vật">
-		{#if characterRecords.length > 0}
-			<div class="character-grid">
-				{#each characterRecords as record (record.id)}
-					<article class="info-card">
-						<div class="status-row">
-							<div>
-								<div class="nav-link__title">
-									#{record.chapter_num} · {record.display_name}
-								</div>
-								<div class="nav-link__meta">
-									{record.group_label} · {record.entity_key ?? 'Chưa có entity key'} ·
-									{record.prompt_schema_version}
-								</div>
-							</div>
-							<StatusPill label={record.group_key} tone="teal" />
-						</div>
-
-						{#if record.fields.length > 0}
-							<div class="field-stack">
-								{#each record.fields as field (field.id)}
-									<div class="field-row">
-										<div class="field-row__label">
-											<span class="field-label">{field.field_label}</span>
-											<span class="nav-link__meta">{field.field_key}</span>
-										</div>
-										<div class="field-row__values">
-											{#each field.values as value (value.id)}
-												<div class="callout-box">
-													<div class="nav-link__title">{value.value}</div>
-													<div class="nav-link__meta">
-														Confidence {confidenceLabel(value.confidence)}
-													</div>
-													{#if value.evidence.length > 0}
-														<div class="evidence-stack">
-															{#each value.evidence as evidence}
-																<div class="nav-link__meta">
-																	{#if evidence.quote}
-																		"{evidence.quote}"
-																	{/if}
-																	{#if evidence.reason}
-																		· {evidence.reason}
-																	{/if}
-																</div>
-															{/each}
-														</div>
-													{/if}
-												</div>
-											{/each}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<div class="empty-note">Record này chưa có field nhỏ.</div>
-						{/if}
-					</article>
-				{/each}
-			</div>
-		{:else}
-			<div class="empty-note">
-				Chưa có dữ liệu nhân vật đã parse trong DB. Chạy analysis cho một chương để tạo record
-				`character`.
-			</div>
-		{/if}
-	</Panel>
 </div>

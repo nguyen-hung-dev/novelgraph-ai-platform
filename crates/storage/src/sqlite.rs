@@ -611,7 +611,9 @@ impl SqliteStore {
             for field_row in field_rows {
                 let field_id: String = field_row.get("id");
                 let value_rows = sqlx::query(
-                    "SELECT id, field_id, value_text, confidence, evidence_json, created_at, updated_at
+                    "SELECT id, field_id, value_text, confidence,
+                            related_character, relationship_type, relationship_label,
+                            relationship_direction, evidence_json, created_at, updated_at
                      FROM story_extraction_values
                      WHERE field_id = ?
                      ORDER BY created_at ASC, id ASC",
@@ -1590,14 +1592,20 @@ async fn replace_story_extraction_records_tx(
 
                 sqlx::query(
                     "INSERT INTO story_extraction_values (
-                        id, field_id, value_text, confidence, evidence_json
+                        id, field_id, value_text, confidence, related_character,
+                        relationship_type, relationship_label, relationship_direction,
+                        evidence_json
                      )
-                     VALUES (?, ?, ?, ?, ?)",
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(prefixed_id("sval"))
                 .bind(&field_id)
                 .bind(&value.value)
                 .bind(value.confidence)
+                .bind(value.related_character.as_deref())
+                .bind(value.relationship_type.as_deref())
+                .bind(value.relationship_label.as_deref())
+                .bind(value.relationship_direction.as_deref())
                 .bind(evidence_json)
                 .execute(&mut **tx)
                 .await?;
@@ -1794,6 +1802,10 @@ fn story_extraction_value_from_row(row: SqliteRow) -> StorageResult<StoryExtract
         field_id: row.get("field_id"),
         value: row.get("value_text"),
         confidence: row.get("confidence"),
+        related_character: row.get("related_character"),
+        relationship_type: row.get("relationship_type"),
+        relationship_label: row.get("relationship_label"),
+        relationship_direction: row.get("relationship_direction"),
         evidence,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),

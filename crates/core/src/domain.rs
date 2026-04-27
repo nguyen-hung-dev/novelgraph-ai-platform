@@ -161,6 +161,14 @@ pub struct StoryExtractionFieldValuePayload {
     pub value: String,
     pub confidence: Option<f64>,
     #[serde(default)]
+    pub related_character: Option<String>,
+    #[serde(default)]
+    pub relationship_type: Option<String>,
+    #[serde(default)]
+    pub relationship_label: Option<String>,
+    #[serde(default)]
+    pub relationship_direction: Option<String>,
+    #[serde(default)]
     pub evidence: Vec<StoryEvidenceSpan>,
 }
 
@@ -210,6 +218,10 @@ pub struct StoryExtractionFieldValueView {
     pub field_id: String,
     pub value: String,
     pub confidence: Option<f64>,
+    pub related_character: Option<String>,
+    pub relationship_type: Option<String>,
+    pub relationship_label: Option<String>,
+    pub relationship_direction: Option<String>,
     pub evidence: Vec<StoryEvidenceSpan>,
     pub created_at: String,
     pub updated_at: String,

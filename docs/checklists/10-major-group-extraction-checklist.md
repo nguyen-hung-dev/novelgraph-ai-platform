@@ -4,7 +4,8 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 
 ## Phạm Vi Cố Định
 
-- [ ] Chỉ xử lý dữ liệu từ một chương hiện tại.
+- [ ] Chỉ dùng raw text của chương hiện tại làm evidence trực tiếp.
+- [ ] Cho phép dùng nhân vật/alias đã persist từ chương trước làm context nhận diện, nhưng không dùng future chapter làm evidence.
 - [ ] Không dùng future chapter làm evidence.
 - [ ] Không hardcode field nhỏ như `tính cách`, `chức vụ`, `khả năng`, `tên gọi khác` trong code xử lý.
 - [ ] Cho phép hardcode danh sách nhóm lớn ổn định bằng `group_key`.
@@ -129,7 +130,7 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 - [ ] Cho phép một chương có nhiều record cùng nhóm lớn.
 - [ ] Cho phép một record có nhiều field nhỏ.
 - [ ] Cho phép một field có nhiều value.
-- [ ] Chưa cần merge entity xuyên chương ở bước này.
+- [x] Có merge entity xuyên chương tối thiểu bằng exact name và exact alias đã persist.
 
 ## Bước 5 - Tích Hợp Vào Analysis Runner Hiện Có
 
@@ -150,6 +151,22 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 - [x] Resume vẫn bỏ qua chương đã completed.
 - [x] Force rerun xóa hoặc thay thế dữ liệu trích xuất của job/chapter hiện tại theo policy rõ ràng.
 - [x] Không triển khai xử lý song song nhiều chương trong bước này.
+
+## Bước 5.1 - Candidate Merge Trước Khi Tạo Nhân Vật Mới
+
+- [x] Trước khi tạo record mới, thử merge theo tên canonical trùng khớp tuyệt đối sau normalize.
+- [x] Trước khi tạo record mới, thử merge theo alias trùng khớp tuyệt đối đã có trong DB hoặc working document.
+- [x] Không ghi alias mới nếu alias đó trùng tên canonical của một nhân vật khác đã biết.
+- [ ] Trước khi gọi `sanitize_new_character_identity`, tạo danh sách candidate từ nhân vật đã có trong DB và working document.
+- [ ] Chấm điểm candidate bằng normalize bỏ dấu, token overlap, substring, edit distance và alias overlap.
+- [ ] Chỉ gửi candidate có điểm đủ gần cho LLM xác nhận, không gửi toàn bộ danh sách nhân vật.
+- [ ] RAG cho LLM gồm record hiện có, alias đã biết, mention/context gần nhất và identity mới vừa trích xuất.
+- [ ] LLM phải trả JSON action thuộc một trong ba lựa chọn: `merge_existing`, `create_new`, `ignore`.
+- [ ] Chỉ merge khi LLM xác nhận `merge_existing` với target record cụ thể và có lý do dựa trên evidence.
+- [ ] Nếu LLM trả `create_new`, ghi nhân vật mới như hiện tại.
+- [ ] Nếu LLM trả `ignore`, bỏ identity đó và ghi audit/debug payload để review sau.
+- [ ] Không hardcode tên truyện, tên nhân vật, quan hệ hoặc ví dụ cụ thể trong logic merge.
+- [ ] Có log/debug output đủ để người dùng kiểm tra vì sao một nhân vật mới được merge hoặc được tạo riêng.
 
 ## Bước 6 - API Đọc Kết Quả Tối Thiểu
 
@@ -176,7 +193,7 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 
 - [ ] Không làm UI chỉnh sửa inline.
 - [ ] Không làm graph/map/timeline renderer.
-- [ ] Không làm entity merge xuyên chương.
+- [ ] Không làm fuzzy/LLM entity merge tự động trước khi có candidate scoring, audit output và cách test thủ công rõ ràng.
 - [ ] Không làm translation.
 - [ ] Không làm RAG/chat.
 - [ ] Không làm review queue đầy đủ.
