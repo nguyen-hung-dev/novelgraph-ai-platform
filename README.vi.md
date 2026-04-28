@@ -2,7 +2,7 @@
 
 Nền tảng phân tích tiểu thuyết bằng AI với giao diện kiểu desktop, chạy được trên website và ứng dụng desktop local.
 
-Phiên bản foundation hiện tại: `0.11.0`.
+Phiên bản foundation hiện tại: `0.12.0`.
 
 ## Giấy Phép
 

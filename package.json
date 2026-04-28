@@ -1,7 +1,7 @@
 {
   "name": "novelgraph-ai-platform",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "packageManager": "pnpm@10.6.5",
   "scripts": {
     "dev:stack": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-stack.ps1",

@@ -13,7 +13,7 @@ Checklist này dùng để chuyển code hiện tại sang cấu trúc module ph
 
 ## Phase 0 - Baseline Và Luật Chặn File Lớn
 
-- [ ] Ghi nhận line count hiện tại cho các file vượt soft/hard limit.
+- [x] Ghi nhận line count hiện tại cho các file vượt soft/hard limit.
 - [ ] Thêm command kiểm tra thủ công vào hướng dẫn phát triển.
 - [ ] Đánh dấu các file hard-limit là legacy split targets, không nhận workflow mới.
 - [ ] Chọn thứ tự chuyển đổi theo rủi ro: API boundary, storage, core extraction, frontend route lớn.
@@ -21,20 +21,38 @@ Checklist này dùng để chuyển code hiện tại sang cấu trúc module ph
 
 Hotspot hiện tại:
 
-- [ ] `crates/api/src/lib.rs` khoảng 6500+ dòng: hard-limit, ưu tiên số 1.
-- [ ] `crates/storage/src/sqlite.rs` khoảng 2300+ dòng: hard-limit, ưu tiên số 2.
+- [ ] `crates/api/src/lib.rs` khoảng 895 dòng: đã dưới hard-limit, còn vượt soft-limit; tiếp tục tối giản router/app wiring.
+- [ ] `crates/storage/src/sqlite.rs` khoảng 1020+ dòng: đã dưới hard-limit, còn vượt soft-limit; tiếp tục tách `project/novel/story`.
 - [ ] `crates/core/src/extraction.rs` khoảng 1200+ dòng: hard-limit, ưu tiên số 3.
 - [ ] `apps/web/src/routes/projects/[projectId]/reading/+page.svelte` khoảng 1100+ dòng: soft-limit gần hard-limit, ưu tiên số 4.
 
 ## Phase 1 - Tách API Boundary
 
 - [ ] Tạo `crates/api/src/app.rs` cho app state, router tổng và layer setup.
-- [ ] Tạo `crates/api/src/errors.rs` cho `ApiError` và response mapping.
-- [ ] Tạo `crates/api/src/routes/health.rs` và chuyển health route.
-- [ ] Tạo `crates/api/src/routes/byok.rs` và chuyển BYOK handlers.
-- [ ] Tạo `crates/api/src/routes/local_runtime.rs` và chuyển local llama.cpp runtime routes.
-- [ ] Tạo `crates/api/src/routes/projects.rs` cho project CRUD và workspace read.
-- [ ] Tạo `crates/api/src/routes/analysis.rs` cho analysis jobs/run/step routes.
+- [x] Tạo `crates/api/src/errors.rs` cho `ApiError` và response mapping.
+- [x] Tạo `crates/api/src/routes/health.rs` và chuyển health route.
+- [x] Tạo `crates/api/src/routes/byok.rs` và chuyển BYOK handlers.
+- [x] Tạo `crates/api/src/routes/local_runtime.rs` và chuyển local llama.cpp runtime routes.
+- [x] Tạo `crates/api/src/routes/projects.rs` cho project CRUD và workspace read.
+- [x] Tạo route module cho project realtime WebSocket.
+- [x] Tạo `crates/api/src/routes/novels.rs` và `crates/api/src/services/novels.rs` cho import, metadata và chapters.
+- [x] Tạo `crates/api/src/routes/translation.rs` cho translation job routes.
+- [x] Tạo `crates/api/src/routes/jobs.rs` cho job event routes.
+- [x] Tạo `crates/api/src/routes/analysis.rs` cho analysis jobs/run/step routes.
+- [x] Tạo `crates/api/src/services/analysis.rs` cho analysis job get/run/reset/pause/cancel và snapshot read model.
+- [x] Chuyển helper analysis chapter range/next chapter/finish range vào `services/analysis.rs`.
+- [x] Tạo `crates/api/src/services/analysis_step.rs` cho orchestration preflight + stop/fail helpers: force reset, mark running, health gate, chọn chapter, pause on error.
+- [x] Tạo `crates/api/src/services/analysis_pipeline.rs` và chuyển `run_next_analysis_chapter` pipeline sang service.
+- [x] Tạo `crates/api/src/services/analysis_relationships.rs` và chuyển relationship pass entrypoint khỏi `lib.rs`.
+- [x] Chuyển cụm helper relationship (`resolve/normalize/verify/persist record`) khỏi `lib.rs` sang `services/analysis_relationships.rs`.
+- [x] Chuyển helper chia chunk character extraction sang `services/analysis_pipeline.rs`.
+- [x] Tạo `crates/api/src/services/analysis_identity.rs` và chuyển cụm identity resolution xuyên chương khỏi `lib.rs`.
+- [x] Tách `services/analysis_identity.rs` thành `analysis_identity.rs` (orchestration/matching) và `analysis_identity_review.rs` (review + scoring + LLM confirm).
+- [x] Tạo `crates/api/src/services/analysis_alias.rs` và chuyển known-alias hints + alias ownership + quoted-alias context khỏi `lib.rs`.
+- [x] Tạo `crates/api/src/services/analysis_mentions.rs` và chuyển backend mention scan + sampled LLM confirmation khỏi `lib.rs`.
+- [x] Tạo `crates/api/src/services/analysis_fields.rs` và chuyển target contexts + field payload normalization/verification khỏi `lib.rs`.
+- [x] Tạo `crates/api/src/services/analysis_document.rs` và chuyển record merge/dedupe, alias hydration, document validation, field-key normalization khỏi `lib.rs`.
+- [x] Tạo `crates/api/src/services/llm_json.rs` cho gọi local LLM, parse JSON array và repair retry dùng chung.
 - [ ] Chuyển logic dài khỏi handler sang `crates/api/src/services/*`.
 - [ ] Giữ `lib.rs` dưới soft limit, chỉ export builder và module declarations.
 - [ ] Smoke check: `/health`, `/api/projects`, `/api/byok/config`, local runtime health, analysis step một chương.
@@ -43,9 +61,11 @@ Hotspot hiện tại:
 
 - [ ] Tạo `crates/storage/src/repositories/project.rs`.
 - [ ] Tạo `crates/storage/src/repositories/novel.rs`.
-- [ ] Tạo `crates/storage/src/repositories/analysis.rs`.
+- [x] Tạo `crates/storage/src/repositories/analysis.rs`.
+- [x] Tạo `crates/storage/src/repositories/story_aliases.rs` cho rebuild alias map và lọc alias ổn định.
 - [ ] Tạo `crates/storage/src/repositories/story.rs`.
-- [ ] Tạo `crates/storage/src/repositories/byok.rs`.
+- [x] Tạo `crates/storage/src/repositories/byok.rs`.
+- [x] Tách smoke test storage khỏi `sqlite.rs` sang `crates/storage/src/sqlite_tests.rs`.
 - [ ] Tạo `crates/storage/src/repositories/local_runtime.rs` nếu storage state cần tách riêng.
 - [ ] Tạo `crates/storage/src/mappers/*` cho row mapper dài.
 - [ ] Giữ SQLite/Postgres parity trong từng repository hoặc adapter.

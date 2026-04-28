@@ -8,6 +8,7 @@ Read order:
 2. `.codex/project-context.md`
 3. `.codex/implementation-rules.md`
 4. `.codex/versioning.md`
+   - For version bumps, release commits, GitHub pushes, tags, or release notes, also read `.codex/skills/novelgraph-release/SKILL.md`.
 5. `docs/module-architecture.md`
 6. `docs/checklists/11-module-refactor-checklist.md` when touching large files or moving module boundaries
 7. Relevant phase task in `.codex/tasks/`

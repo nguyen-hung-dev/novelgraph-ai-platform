@@ -1,0 +1,4 @@
+interface:
+  display_name: "NovelGraph Release"
+  short_description: "Release and tag NovelGraph safely."
+  default_prompt: "Prepare a NovelGraph release workflow with version metadata, changelog, checks, commit, push, and tag steps."

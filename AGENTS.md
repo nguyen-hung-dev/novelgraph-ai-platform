@@ -8,6 +8,19 @@ Before substantial implementation work, read `.codex/README.md`, `.codex/project
 
 For module layout, file-size governance, and refactor sequencing, read `docs/module-architecture.md` and `docs/checklists/11-module-refactor-checklist.md`.
 
+## Fast Release Shortcut
+
+When the user starts a request with `/release`, `release:`, or `rel:`, do not search broadly for release instructions. Read `.codex/skills/novelgraph-release/SKILL.md` and follow it.
+
+Recommended quick forms:
+
+- `/release preflight`
+- `/release prepare vX.Y.Z`
+- `/release vX.Y.Z commit`
+- `/release vX.Y.Z push origin main tag`
+
+If the version or action is missing, ask one concise question before editing files or running git operations.
+
 Primary goals:
 
 - Hosted web app with BYOK LLM keys.

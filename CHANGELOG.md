@@ -8,6 +8,18 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.12.0] - 2026-04-29
+
+### Changed
+
+- Split the API crate into route and service modules for health, local LLM, BYOK, projects, realtime, novels, jobs, translation, and analysis while keeping router wiring in `lib.rs`.
+- Moved long analysis pipeline helpers into focused services for stepping, pipeline execution, relationship extraction, identity resolution, alias handling, mention scanning, field verification, document assembly, and local LLM JSON repair.
+- Split SQLite analysis, BYOK, story-alias, and storage smoke-test logic into focused modules so legacy storage files are below the hard file-size limit and can continue shrinking by domain.
+- Added a repo-scoped `novelgraph-release` Codex skill and linked it from the agent operating guide for version, changelog, commit, push, tag, and release workflows.
+- Updated the module refactor checklist with completed API/storage split work and remaining soft-limit follow-up items.
+- Updated app version metadata to `0.12.0`.
+- Kept storage schema version at `2026-04-29.foundation.v9` because this release does not add database migrations.
+
 ## [0.11.0] - 2026-04-29
 
 ### Changed
