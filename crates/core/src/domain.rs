@@ -17,6 +17,8 @@ pub struct Novel {
     pub title: String,
     pub author: Option<String>,
     pub source_language: Option<String>,
+    pub genre: Option<String>,
+    pub description: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -109,7 +111,9 @@ pub struct AnalysisRunSnapshot {
     pub next_chapter_num: Option<i64>,
     pub paused_reason: Option<String>,
     pub chapters: Vec<AnalysisChapterState>,
+    pub character_aliases: Vec<StoryCharacterAliasView>,
     pub character_records: Vec<StoryExtractionRecordView>,
+    pub relationship_records: Vec<StoryExtractionRecordView>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,6 +186,25 @@ pub struct StoryEvidenceSpan {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoryCharacterAliasView {
+    pub id: String,
+    pub project_id: String,
+    pub novel_id: String,
+    pub job_id: String,
+    pub entity_key: String,
+    pub display_name: String,
+    pub alias_text: String,
+    pub alias_key: String,
+    pub alias_type: String,
+    pub alias_label: String,
+    pub confidence: Option<f64>,
+    pub first_chapter_num: i64,
+    pub evidence: Vec<StoryEvidenceSpan>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StoryExtractionRecordView {
     pub id: String,
     pub project_id: String,
@@ -247,6 +270,85 @@ pub struct TranslationJob {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ByokProviderPreset {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub default_model: String,
+    pub models: Vec<String>,
+    pub api_format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ByokProviderConfigRecord {
+    pub id: String,
+    pub user_id: String,
+    pub provider: String,
+    pub display_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub api_format: String,
+    pub encrypted_secret_ref: Option<String>,
+    pub key_fingerprint: Option<String>,
+    pub session_only: bool,
+    pub last_checked_at: Option<String>,
+    pub last_health_status: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ByokProviderConfigView {
+    pub provider: String,
+    pub display_name: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_format: String,
+    pub has_api_key: bool,
+    pub api_key_masked: String,
+    pub key_fingerprint: Option<String>,
+    pub session_only: bool,
+    pub last_checked_at: Option<String>,
+    pub last_health_status: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveByokProviderConfigInput {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub session_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SaveByokProviderConfigResult {
+    pub config: ByokProviderConfigView,
+    pub saved_api_key: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckByokProviderKeyInput {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ByokProviderKeyHealth {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub valid: bool,
+    pub status_code: Option<u16>,
+    pub message: String,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JobEvent {
     pub id: String,
     pub project_id: String,
@@ -289,7 +391,38 @@ pub struct NovelImportInput {
     pub title: String,
     pub author: Option<String>,
     pub source_language: Option<String>,
+    pub genre: Option<String>,
+    pub description: Option<String>,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NovelMetadataUpdateInput {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub source_language: Option<String>,
+    pub genre: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NovelMetadataSuggestionInput {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub source_language: Option<String>,
+    pub genre: Option<String>,
+    pub description: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NovelMetadataSuggestion {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub source_language: Option<String>,
+    pub genre: Option<String>,
+    pub description: Option<String>,
+    pub confidence: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -325,8 +458,11 @@ pub struct ProjectWorkspaceSnapshot {
     pub active_novel: Option<Novel>,
     pub chapters: Vec<Chapter>,
     pub latest_analysis_job: Option<AnalysisJob>,
+    pub latest_analysis_chapters: Vec<AnalysisChapterState>,
     pub latest_job_events: Vec<JobEvent>,
+    pub character_aliases: Vec<StoryCharacterAliasView>,
     pub character_records: Vec<StoryExtractionRecordView>,
+    pub relationship_records: Vec<StoryExtractionRecordView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -6,15 +6,18 @@ This directory contains planning and architecture documents for NovelGraph AI Pl
 
 - [Implementation plan](implementation-plan.md)
 - [Product requirements](product-requirements.md)
+- [Module architecture and file-size governance](module-architecture.md)
 - [Agentic automation and inline editing](agentic-automation-and-inline-editing.md)
 - [Roadmap](../ROADMAP.md)
 - [Implementation checklists](checklists/README.md)
+- [Module refactor checklist](checklists/11-module-refactor-checklist.md)
 - [Translation checklist](checklists/09-translation-parallel-checklist.md)
 
 ## Technical Design
 
 - [API contract](api-contract.md)
 - [Data model](data-model.md)
+- [Module architecture](module-architecture.md)
 - [Development guide](development.md)
 - [Deployment model](deployment.md)
 - [Testing strategy](testing-strategy.md)

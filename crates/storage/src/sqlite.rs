@@ -1,9 +1,10 @@
-use std::{path::Path, str::FromStr};
+use std::{collections::HashMap, path::Path, str::FromStr};
 
 use novelgraph_core::{
-    split_chapters, split_source_segments, AnalysisChapterRun, AnalysisJob, Chapter,
-    CreateTranslationJobInput, DeleteProjectResult, JobEvent, Novel, NovelImportInput,
-    NovelImportResult, Project, StoryEvidenceSpan, StoryExtractionDocument,
+    detect_basic_source_language, split_chapters, split_source_segments, AnalysisChapterRun,
+    AnalysisJob, ByokProviderConfigRecord, Chapter, CreateTranslationJobInput, DeleteProjectResult,
+    JobEvent, Novel, NovelImportInput, NovelImportResult, NovelMetadataUpdateInput, Project,
+    StoryCharacterAliasView, StoryEvidenceSpan, StoryExtractionDocument,
     StoryExtractionFieldValueView, StoryExtractionFieldView, StoryExtractionRecordPayload,
     StoryExtractionRecordView, TranslationJob,
 };
@@ -236,27 +237,21 @@ impl SqliteStore {
         let mut source_segment_count = 0usize;
         let mut tx = self.pool.begin().await?;
 
+        let source_language = normalize_source_language(input.source_language.clone(), Some(&text));
+
         sqlx::query(
-            "INSERT INTO novels (id, project_id, title, author, source_language)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO novels (
+                id, project_id, title, author, source_language, genre, description
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&novel_id)
         .bind(project_id)
         .bind(title)
-        .bind(
-            input
-                .author
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty()),
-        )
-        .bind(
-            input
-                .source_language
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty()),
-        )
+        .bind(optional_trimmed(input.author))
+        .bind(source_language)
+        .bind(optional_trimmed(input.genre))
+        .bind(optional_trimmed(input.description))
         .execute(&mut *tx)
         .await?;
 
@@ -358,7 +353,8 @@ impl SqliteStore {
         novel_id: &str,
     ) -> StorageResult<Option<Novel>> {
         let row = sqlx::query(
-            "SELECT id, project_id, title, author, source_language, created_at, updated_at
+            "SELECT id, project_id, title, author, source_language, genre, description,
+                    created_at, updated_at
              FROM novels
              WHERE project_id = ? AND id = ?",
         )
@@ -374,7 +370,8 @@ impl SqliteStore {
         self.require_project(project_id).await?;
 
         let rows = sqlx::query(
-            "SELECT id, project_id, title, author, source_language, created_at, updated_at
+            "SELECT id, project_id, title, author, source_language, genre, description,
+                    created_at, updated_at
              FROM novels
              WHERE project_id = ?
              ORDER BY updated_at DESC, created_at DESC, id DESC",
@@ -384,6 +381,50 @@ impl SqliteStore {
         .await?;
 
         Ok(rows.into_iter().map(novel_from_row).collect())
+    }
+
+    pub async fn update_novel_metadata(
+        &self,
+        project_id: &str,
+        novel_id: &str,
+        input: NovelMetadataUpdateInput,
+    ) -> StorageResult<Novel> {
+        self.require_novel(project_id, novel_id).await?;
+
+        let current = self
+            .get_novel(project_id, novel_id)
+            .await?
+            .ok_or(StorageError::NotFound("novel"))?;
+        let title = optional_trimmed(input.title).unwrap_or(current.title);
+        if title.trim().is_empty() {
+            return Err(StorageError::InvalidInput(
+                "novel title is required".to_string(),
+            ));
+        }
+
+        sqlx::query(
+            "UPDATE novels
+             SET title = ?,
+                 author = ?,
+                 source_language = ?,
+                 genre = ?,
+                 description = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE project_id = ? AND id = ?",
+        )
+        .bind(title)
+        .bind(optional_trimmed(input.author))
+        .bind(normalize_source_language(input.source_language, None))
+        .bind(optional_trimmed(input.genre))
+        .bind(optional_trimmed(input.description))
+        .bind(project_id)
+        .bind(novel_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_novel(project_id, novel_id)
+            .await?
+            .ok_or(StorageError::NotFound("novel"))
     }
 
     pub async fn list_chapters(
@@ -661,6 +702,31 @@ impl SqliteStore {
         Ok(records)
     }
 
+    pub async fn list_story_character_aliases(
+        &self,
+        project_id: &str,
+        analysis_job_id: &str,
+    ) -> StorageResult<Vec<StoryCharacterAliasView>> {
+        self.require_project(project_id).await?;
+
+        let rows = sqlx::query(
+            "SELECT id, project_id, novel_id, job_id, entity_key, display_name,
+                    alias_text, alias_key, alias_type, alias_label, confidence,
+                    first_chapter_num, evidence_json, created_at, updated_at
+             FROM story_character_aliases
+             WHERE project_id = ? AND job_id = ?
+             ORDER BY display_name ASC, first_chapter_num ASC, alias_text ASC, id ASC",
+        )
+        .bind(project_id)
+        .bind(analysis_job_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(story_character_alias_from_row)
+            .collect()
+    }
+
     pub async fn reset_analysis_run(
         &self,
         project_id: &str,
@@ -677,6 +743,7 @@ impl SqliteStore {
             .bind(analysis_job_id)
             .execute(&mut *tx)
             .await?;
+        rebuild_story_character_aliases_tx(&mut tx, project_id, analysis_job_id).await?;
 
         sqlx::query(
             "UPDATE analysis_jobs
@@ -745,6 +812,7 @@ impl SqliteStore {
         .bind(to_chapter_num)
         .execute(&mut *tx)
         .await?;
+        rebuild_story_character_aliases_tx(&mut tx, project_id, analysis_job_id).await?;
 
         sqlx::query(
             "UPDATE analysis_jobs
@@ -1101,17 +1169,21 @@ impl SqliteStore {
             .ok_or(StorageError::NotFound("analysis_chapter_run"))?;
 
         let mut tx = self.pool.begin().await?;
-        let (character_record_count, character_mention_count) =
-            replace_story_extraction_records_tx(
-                &mut tx,
-                &current,
-                project_id,
-                analysis_job_id,
-                chapter_id,
-                prompt_schema_version,
-                extraction,
-            )
-            .await?;
+        let (
+            character_record_count,
+            character_mention_count,
+            relationship_record_count,
+            character_alias_count,
+        ) = replace_story_extraction_records_tx(
+            &mut tx,
+            &current,
+            project_id,
+            analysis_job_id,
+            chapter_id,
+            prompt_schema_version,
+            extraction,
+        )
+        .await?;
 
         insert_job_event(
             &mut tx,
@@ -1126,6 +1198,8 @@ impl SqliteStore {
                 "phase": phase,
                 "record_count": character_record_count,
                 "mention_count": character_mention_count,
+                "relationship_record_count": relationship_record_count,
+                "character_alias_count": character_alias_count,
                 "prompt_schema_version": prompt_schema_version,
             })
             .to_string(),
@@ -1170,17 +1244,21 @@ impl SqliteStore {
         .execute(&mut *tx)
         .await?;
 
-        let (character_record_count, character_mention_count) =
-            replace_story_extraction_records_tx(
-                &mut tx,
-                &current,
-                project_id,
-                analysis_job_id,
-                chapter_id,
-                prompt_schema_version,
-                extraction,
-            )
-            .await?;
+        let (
+            character_record_count,
+            character_mention_count,
+            relationship_record_count,
+            character_alias_count,
+        ) = replace_story_extraction_records_tx(
+            &mut tx,
+            &current,
+            project_id,
+            analysis_job_id,
+            chapter_id,
+            prompt_schema_version,
+            extraction,
+        )
+        .await?;
 
         insert_job_event(
             &mut tx,
@@ -1194,6 +1272,8 @@ impl SqliteStore {
                 "group_key": "character",
                 "record_count": character_record_count,
                 "mention_count": character_mention_count,
+                "relationship_record_count": relationship_record_count,
+                "character_alias_count": character_alias_count,
                 "prompt_schema_version": prompt_schema_version,
             })
             .to_string(),
@@ -1212,6 +1292,8 @@ impl SqliteStore {
                 "attempt": current.attempt,
                 "prompt_schema_version": prompt_schema_version,
                 "character_record_count": character_record_count,
+                "relationship_record_count": relationship_record_count,
+                "character_alias_count": character_alias_count,
             })
             .to_string(),
         )
@@ -1401,6 +1483,134 @@ impl SqliteStore {
             .ok_or(StorageError::NotFound("translation_job"))
     }
 
+    pub async fn get_local_byok_provider_config(
+        &self,
+    ) -> StorageResult<Option<ByokProviderConfigRecord>> {
+        self.ensure_local_workspace().await?;
+
+        let row = sqlx::query(
+            "SELECT id, user_id, provider, display_name, base_url, model, api_format,
+                    encrypted_secret_ref, key_fingerprint, session_only, last_checked_at,
+                    last_health_status, created_at, updated_at
+             FROM llm_provider_configs
+             WHERE user_id = ?
+             ORDER BY updated_at DESC, created_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(LOCAL_USER_ID)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(byok_provider_config_from_row))
+    }
+
+    pub async fn get_local_byok_provider_config_for_provider(
+        &self,
+        provider: &str,
+    ) -> StorageResult<Option<ByokProviderConfigRecord>> {
+        self.ensure_local_workspace().await?;
+        let provider = require_text(provider, "provider")?;
+
+        let row = sqlx::query(
+            "SELECT id, user_id, provider, display_name, base_url, model, api_format,
+                    encrypted_secret_ref, key_fingerprint, session_only, last_checked_at,
+                    last_health_status, created_at, updated_at
+             FROM llm_provider_configs
+             WHERE user_id = ? AND provider = ?",
+        )
+        .bind(LOCAL_USER_ID)
+        .bind(provider)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(byok_provider_config_from_row))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_local_byok_provider_config(
+        &self,
+        provider: &str,
+        display_name: &str,
+        base_url: &str,
+        model: &str,
+        api_format: &str,
+        encrypted_secret_ref: Option<&str>,
+        key_fingerprint: Option<&str>,
+        session_only: bool,
+    ) -> StorageResult<ByokProviderConfigRecord> {
+        self.ensure_local_workspace().await?;
+        let provider = require_text(provider, "provider")?;
+        let display_name = require_text(display_name, "provider display name")?;
+        let base_url = require_text(base_url, "provider base URL")?;
+        let model = require_text(model, "provider model")?;
+        let api_format = require_text(api_format, "provider API format")?;
+        let config_id = prefixed_id("llm_cfg");
+
+        sqlx::query(
+            "INSERT INTO llm_provider_configs (
+                id, user_id, provider, display_name, base_url, model, api_format,
+                encrypted_secret_ref, key_fingerprint, session_only
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, provider) DO UPDATE SET
+                display_name = excluded.display_name,
+                base_url = excluded.base_url,
+                model = excluded.model,
+                api_format = excluded.api_format,
+                encrypted_secret_ref = COALESCE(
+                    excluded.encrypted_secret_ref,
+                    llm_provider_configs.encrypted_secret_ref
+                ),
+                key_fingerprint = COALESCE(
+                    excluded.key_fingerprint,
+                    llm_provider_configs.key_fingerprint
+                ),
+                session_only = excluded.session_only,
+                updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(config_id)
+        .bind(LOCAL_USER_ID)
+        .bind(provider.as_str())
+        .bind(display_name)
+        .bind(base_url)
+        .bind(model)
+        .bind(api_format)
+        .bind(encrypted_secret_ref)
+        .bind(key_fingerprint)
+        .bind(if session_only { 1 } else { 0 })
+        .execute(&self.pool)
+        .await?;
+
+        self.get_local_byok_provider_config_for_provider(&provider)
+            .await?
+            .ok_or(StorageError::NotFound("llm_provider_config"))
+    }
+
+    pub async fn update_local_byok_provider_health(
+        &self,
+        provider: &str,
+        last_health_status: &str,
+    ) -> StorageResult<()> {
+        self.ensure_local_workspace().await?;
+        let provider = require_text(provider, "provider")?;
+        let last_health_status = require_text(last_health_status, "health status")?;
+
+        sqlx::query(
+            "UPDATE llm_provider_configs
+             SET last_checked_at = CURRENT_TIMESTAMP,
+                 last_health_status = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = ? AND provider = ?",
+        )
+        .bind(last_health_status)
+        .bind(LOCAL_USER_ID)
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn connect_with_options(
         options: SqliteConnectOptions,
         max_connections: u32,
@@ -1513,7 +1723,7 @@ async fn replace_story_extraction_records_tx(
     chapter_id: &str,
     prompt_schema_version: &str,
     extraction: &StoryExtractionDocument,
-) -> StorageResult<(usize, usize)> {
+) -> StorageResult<(usize, usize, usize, usize)> {
     let character_record_count = extraction
         .records
         .iter()
@@ -1525,10 +1735,16 @@ async fn replace_story_extraction_records_tx(
         .filter(|record| record.group_key == "character")
         .map(|record| record.mentions.len())
         .sum::<usize>();
+    let relationship_record_count = extraction
+        .records
+        .iter()
+        .filter(|record| record.group_key == "relationship")
+        .count();
 
     sqlx::query(
         "DELETE FROM story_extraction_records
-         WHERE project_id = ? AND job_id = ? AND chapter_id = ? AND group_key = 'character'",
+         WHERE project_id = ? AND job_id = ? AND chapter_id = ?
+           AND group_key IN ('character', 'relationship')",
     )
     .bind(project_id)
     .bind(analysis_job_id)
@@ -1539,7 +1755,7 @@ async fn replace_story_extraction_records_tx(
     for record in extraction
         .records
         .iter()
-        .filter(|record| record.group_key == "character")
+        .filter(|record| matches!(record.group_key.as_str(), "character" | "relationship"))
     {
         let record_id = prefixed_id("srec");
         let raw_record_json = serde_json::to_string(record).map_err(|err| {
@@ -1613,7 +1829,269 @@ async fn replace_story_extraction_records_tx(
         }
     }
 
-    Ok((character_record_count, character_mention_count))
+    let character_alias_count =
+        rebuild_story_character_aliases_tx(tx, project_id, analysis_job_id).await?;
+
+    Ok((
+        character_record_count,
+        character_mention_count,
+        relationship_record_count,
+        character_alias_count,
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct StoryCharacterAliasUpsert {
+    project_id: String,
+    novel_id: String,
+    job_id: String,
+    entity_key: String,
+    display_name: String,
+    alias_text: String,
+    alias_key: String,
+    alias_type: String,
+    alias_label: String,
+    confidence: Option<f64>,
+    first_chapter_num: i64,
+    evidence_json: String,
+}
+
+async fn rebuild_story_character_aliases_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+    analysis_job_id: &str,
+) -> StorageResult<usize> {
+    sqlx::query(
+        "DELETE FROM story_character_aliases
+         WHERE project_id = ? AND job_id = ?",
+    )
+    .bind(project_id)
+    .bind(analysis_job_id)
+    .execute(&mut **tx)
+    .await?;
+
+    let record_rows = sqlx::query(
+        "SELECT id, project_id, novel_id, job_id, chapter_num, entity_key, display_name
+         FROM story_extraction_records
+         WHERE project_id = ? AND job_id = ? AND group_key = 'character'
+         ORDER BY chapter_num ASC, display_name ASC, id ASC",
+    )
+    .bind(project_id)
+    .bind(analysis_job_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut aliases = HashMap::<String, StoryCharacterAliasUpsert>::new();
+    for record_row in record_rows {
+        let record_id: String = record_row.get("id");
+        let display_name: String = record_row.get("display_name");
+        let entity_key = record_row
+            .get::<Option<String>, _>("entity_key")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| normalized_story_alias_key(&display_name));
+        if entity_key.trim().is_empty() {
+            continue;
+        }
+
+        let project_id_value: String = record_row.get("project_id");
+        let novel_id: String = record_row.get("novel_id");
+        let job_id: String = record_row.get("job_id");
+        let chapter_num: i64 = record_row.get("chapter_num");
+
+        push_story_character_alias(
+            &mut aliases,
+            StoryCharacterAliasUpsert {
+                project_id: project_id_value.clone(),
+                novel_id: novel_id.clone(),
+                job_id: job_id.clone(),
+                entity_key: entity_key.clone(),
+                display_name: display_name.clone(),
+                alias_text: display_name.clone(),
+                alias_key: normalized_story_alias_key(&display_name),
+                alias_type: "canonical_name".to_string(),
+                alias_label: "Tên chính".to_string(),
+                confidence: Some(1.0),
+                first_chapter_num: chapter_num,
+                evidence_json: "[]".to_string(),
+            },
+        );
+
+        let alias_rows = sqlx::query(
+            "SELECT f.field_key, f.field_label, v.value_text, v.confidence, v.evidence_json
+             FROM story_extraction_fields f
+             JOIN story_extraction_values v ON v.field_id = f.id
+             WHERE f.record_id = ?
+             ORDER BY f.field_key ASC, v.created_at ASC, v.id ASC",
+        )
+        .bind(&record_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for alias_row in alias_rows {
+            let field_key: String = alias_row.get("field_key");
+            if !is_story_character_alias_field_key(&field_key) {
+                continue;
+            }
+
+            let alias_text: String = alias_row.get("value_text");
+            let alias_key = normalized_story_alias_key(&alias_text);
+            if alias_key.is_empty() || alias_key == normalized_story_alias_key(&display_name) {
+                continue;
+            }
+
+            push_story_character_alias(
+                &mut aliases,
+                StoryCharacterAliasUpsert {
+                    project_id: project_id_value.clone(),
+                    novel_id: novel_id.clone(),
+                    job_id: job_id.clone(),
+                    entity_key: entity_key.clone(),
+                    display_name: display_name.clone(),
+                    alias_text,
+                    alias_key,
+                    alias_type: normalize_story_alias_type(&field_key),
+                    alias_label: alias_row.get("field_label"),
+                    confidence: alias_row.get("confidence"),
+                    first_chapter_num: chapter_num,
+                    evidence_json: alias_row.get("evidence_json"),
+                },
+            );
+        }
+    }
+
+    let alias_count = aliases.len();
+    for alias in aliases.into_values() {
+        sqlx::query(
+            "INSERT INTO story_character_aliases (
+                id, project_id, novel_id, job_id, entity_key, display_name,
+                alias_text, alias_key, alias_type, alias_label, confidence,
+                first_chapter_num, evidence_json
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(prefixed_id("sali"))
+        .bind(alias.project_id)
+        .bind(alias.novel_id)
+        .bind(alias.job_id)
+        .bind(alias.entity_key)
+        .bind(alias.display_name)
+        .bind(alias.alias_text)
+        .bind(alias.alias_key)
+        .bind(alias.alias_type)
+        .bind(alias.alias_label)
+        .bind(alias.confidence)
+        .bind(alias.first_chapter_num)
+        .bind(alias.evidence_json)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(alias_count)
+}
+
+fn push_story_character_alias(
+    aliases: &mut HashMap<String, StoryCharacterAliasUpsert>,
+    alias: StoryCharacterAliasUpsert,
+) {
+    if alias.alias_key.is_empty() {
+        return;
+    }
+    if alias.alias_type != "canonical_name"
+        && (!is_story_alias_type_persistable(&alias.alias_type)
+            || !is_stable_story_character_alias_surface(&alias.alias_text))
+    {
+        return;
+    }
+
+    let key = format!("{}:{}", alias.entity_key, alias.alias_key);
+    if let Some(existing) = aliases.get_mut(&key) {
+        if alias.first_chapter_num < existing.first_chapter_num {
+            existing.first_chapter_num = alias.first_chapter_num;
+            existing.alias_text = alias.alias_text;
+        }
+        if alias.confidence.unwrap_or(0.0) > existing.confidence.unwrap_or(0.0) {
+            existing.confidence = alias.confidence;
+        }
+        if existing.evidence_json.trim() == "[]" && alias.evidence_json.trim() != "[]" {
+            existing.evidence_json = alias.evidence_json;
+        }
+        return;
+    }
+
+    aliases.insert(key, alias);
+}
+
+fn is_stable_story_character_alias_surface(value: &str) -> bool {
+    let surface = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if surface.is_empty() {
+        return false;
+    }
+
+    let key = normalized_story_alias_key(&surface);
+    if key.is_empty() {
+        return false;
+    }
+
+    let tokens = surface.split_whitespace().collect::<Vec<_>>();
+    let token_count = tokens.len();
+    let char_count = surface.chars().filter(|ch| ch.is_alphanumeric()).count();
+    let has_uppercase_token = tokens
+        .iter()
+        .any(|token| token.chars().next().is_some_and(char::is_uppercase));
+
+    if token_count == 0 || char_count <= 3 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count == 1 && char_count <= 4 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count <= 2 && char_count <= 6 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count > 3 {
+        return false;
+    }
+
+    true
+}
+
+fn is_story_character_alias_field_key(field_key: &str) -> bool {
+    matches!(
+        normalize_story_alias_type(field_key).as_str(),
+        "alias" | "aliases" | "other_alias" | "other_name" | "other_names" | "nickname"
+    )
+}
+
+fn is_story_alias_type_persistable(alias_type: &str) -> bool {
+    matches!(
+        normalize_story_alias_type(alias_type).as_str(),
+        "alias" | "aliases" | "other_alias" | "other_name" | "other_names" | "nickname"
+    )
+}
+
+fn normalize_story_alias_type(field_key: &str) -> String {
+    match normalized_story_alias_key(field_key).as_str() {
+        "nickname" | "biet_danh" => "nickname".to_string(),
+        "alias" | "aliases" => "alias".to_string(),
+        "other_name" | "other_names" | "ten_goi_khac" | "ten_khac" => "other_name".to_string(),
+        "other_alias" => "other_alias".to_string(),
+        "pronoun"
+        | "personal_pronoun"
+        | "dai_tu"
+        | "dai_tu_nhan_xung"
+        | "temporary_reference"
+        | "grammatical_reference"
+        | "descriptive_phrase"
+        | "event_phrase"
+        | "group_reference"
+        | "possessive_phrase"
+        | "generic_reference"
+        | "unstable_reference" => "unstable_reference".to_string(),
+        value => value.to_string(),
+    }
 }
 
 async fn insert_job_event(
@@ -1669,6 +2147,15 @@ fn optional_trimmed(value: Option<String>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn normalize_source_language(value: Option<String>, text: Option<&str>) -> Option<String> {
+    let trimmed = optional_trimmed(value);
+    match trimmed.as_deref() {
+        Some("auto") | Some("detect") => text.and_then(detect_basic_source_language),
+        Some(value) => Some(value.to_string()),
+        None => text.and_then(detect_basic_source_language),
+    }
+}
+
 fn prefixed_id(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::now_v7().simple())
 }
@@ -1702,6 +2189,8 @@ fn novel_from_row(row: SqliteRow) -> Novel {
         title: row.get("title"),
         author: row.get("author"),
         source_language: row.get("source_language"),
+        genre: row.get("genre"),
+        description: row.get("description"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -1777,6 +2266,27 @@ fn translation_job_from_row(row: SqliteRow) -> TranslationJob {
     }
 }
 
+fn byok_provider_config_from_row(row: SqliteRow) -> ByokProviderConfigRecord {
+    let session_only: i64 = row.get("session_only");
+
+    ByokProviderConfigRecord {
+        id: row.get("id"),
+        user_id: row.get("user_id"),
+        provider: row.get("provider"),
+        display_name: row.get("display_name"),
+        base_url: row.get("base_url"),
+        model: row.get("model"),
+        api_format: row.get("api_format"),
+        encrypted_secret_ref: row.get("encrypted_secret_ref"),
+        key_fingerprint: row.get("key_fingerprint"),
+        session_only: session_only != 0,
+        last_checked_at: row.get("last_checked_at"),
+        last_health_status: row.get("last_health_status"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
 fn job_event_from_row(row: SqliteRow) -> JobEvent {
     JobEvent {
         id: row.get("id"),
@@ -1812,6 +2322,79 @@ fn story_extraction_value_from_row(row: SqliteRow) -> StorageResult<StoryExtract
     })
 }
 
+fn story_character_alias_from_row(row: SqliteRow) -> StorageResult<StoryCharacterAliasView> {
+    let evidence_json: String = row.get("evidence_json");
+    let evidence =
+        serde_json::from_str::<Vec<StoryEvidenceSpan>>(&evidence_json).map_err(|err| {
+            StorageError::InvalidInput(format!("invalid stored character alias evidence: {err}"))
+        })?;
+
+    Ok(StoryCharacterAliasView {
+        id: row.get("id"),
+        project_id: row.get("project_id"),
+        novel_id: row.get("novel_id"),
+        job_id: row.get("job_id"),
+        entity_key: row.get("entity_key"),
+        display_name: row.get("display_name"),
+        alias_text: row.get("alias_text"),
+        alias_key: row.get("alias_key"),
+        alias_type: row.get("alias_type"),
+        alias_label: row.get("alias_label"),
+        confidence: row.get("confidence"),
+        first_chapter_num: row.get("first_chapter_num"),
+        evidence,
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+fn normalized_story_alias_key(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_was_separator = true;
+
+    for ch in value.trim().chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            last_was_separator = false;
+        } else if let Some(ascii) = fold_story_alias_char(ch) {
+            normalized.push(ascii);
+            last_was_separator = false;
+        } else if ch.is_alphanumeric() {
+            normalized.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            normalized.push('_');
+            last_was_separator = true;
+        }
+    }
+
+    while normalized.ends_with('_') {
+        normalized.pop();
+    }
+
+    normalized
+}
+
+fn fold_story_alias_char(ch: char) -> Option<char> {
+    match ch {
+        'a'..='z' | '0'..='9' => Some(ch),
+        'à' | 'á' | 'ả' | 'ã' | 'ạ' | 'ă' | 'ằ' | 'ắ' | 'ẳ' | 'ẵ' | 'ặ' | 'â' | 'ầ' | 'ấ' | 'ẩ'
+        | 'ẫ' | 'ậ' => Some('a'),
+        'è' | 'é' | 'ẻ' | 'ẽ' | 'ẹ' | 'ê' | 'ề' | 'ế' | 'ể' | 'ễ' | 'ệ' => {
+            Some('e')
+        }
+        'ì' | 'í' | 'ỉ' | 'ĩ' | 'ị' => Some('i'),
+        'ò' | 'ó' | 'ỏ' | 'õ' | 'ọ' | 'ô' | 'ồ' | 'ố' | 'ổ' | 'ỗ' | 'ộ' | 'ơ' | 'ờ' | 'ớ' | 'ở'
+        | 'ỡ' | 'ợ' => Some('o'),
+        'ù' | 'ú' | 'ủ' | 'ũ' | 'ụ' | 'ư' | 'ừ' | 'ứ' | 'ử' | 'ữ' | 'ự' => {
+            Some('u')
+        }
+        'ỳ' | 'ý' | 'ỷ' | 'ỹ' | 'ỵ' => Some('y'),
+        'đ' => Some('d'),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use novelgraph_core::{CreateTranslationJobInput, NovelImportInput};
@@ -1835,6 +2418,8 @@ mod tests {
                     title: "Truyện Thử".to_string(),
                     author: Some("Tác giả".to_string()),
                     source_language: Some("zh".to_string()),
+                    genre: None,
+                    description: None,
                     text: "Chương 1\nMở đầu.\n\nChương 2\nTiếp tục.".to_string(),
                 },
             )
@@ -2000,6 +2585,8 @@ mod tests {
                     title: "Truyện Xóa".to_string(),
                     author: None,
                     source_language: Some("vi".to_string()),
+                    genre: None,
+                    description: None,
                     text: "Chương 1\nDữ liệu xóa.".to_string(),
                 },
             )

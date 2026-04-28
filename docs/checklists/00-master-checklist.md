@@ -7,6 +7,9 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [x] Chốt license.
 - [x] Chốt package manager cho frontend.
 - [x] Chốt Rust workspace layout.
+- [ ] Chốt kiến trúc module phân cấp theo `docs/module-architecture.md`.
+- [ ] Áp dụng soft limit 800 dòng và hard limit 1200 dòng cho file viết tay.
+- [ ] Hoàn thành phase baseline trong `docs/checklists/11-module-refactor-checklist.md`.
 - [ ] Chốt chiến lược API contract: OpenAPI-first hoặc Rust-schema-first.
 - [ ] Kiểm tra README tiếng Anh và tiếng Việt trước khi public rộng.
 - [ ] Đảm bảo không commit `docs/architecture-and-rewrite.md`.

@@ -38,6 +38,8 @@ tools/llama.cpp/llama-server.exe
 
 ## Intended Layout
 
+The detailed module target and ownership rules are in [Module architecture](module-architecture.md). Hand-written files have a soft limit of 800 lines and a hard limit of 1200 lines.
+
 ```text
 apps/web
   SvelteKit app
@@ -62,6 +64,21 @@ crates/jobs
 
 packages/schemas
   generated shared types and API schemas
+```
+
+When a file crosses the soft limit, add a split task to [Module refactor checklist](checklists/11-module-refactor-checklist.md). When a file crosses the hard limit, split it before adding new feature logic.
+
+Quick line-count audit:
+
+```powershell
+Get-ChildItem -Recurse -File -Include *.rs,*.svelte,*.ts,*.md |
+  Where-Object { $_.FullName -notmatch '\\(target|node_modules|\.svelte-kit)\\' } |
+  ForEach-Object {
+    $lines = (Get-Content -LiteralPath $_.FullName | Measure-Object -Line).Lines
+    [pscustomobject]@{ Lines = $lines; Path = $_.FullName.Substring((Get-Location).Path.Length + 1) }
+  } |
+  Sort-Object Lines -Descending |
+  Select-Object -First 30
 ```
 
 ## First Local Commands
@@ -140,5 +157,7 @@ pnpm dev:stack:dry-run
 - Build vertical slices.
 - Keep schemas versioned.
 - Keep generated artifacts out of hand-written domain logic.
+- Keep module ownership visible. Route files compose, services orchestrate, repositories query, domain modules validate, and provider modules call model APIs.
+- Split files before they become control points for unrelated domains.
 - Add tests before broad refactors.
 - Keep BYOK security checks close to provider code.

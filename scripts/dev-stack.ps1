@@ -2,7 +2,7 @@
 param(
     [int]$BackendPort = 3000,
     [int]$FrontendPort = 5173,
-    [int]$PortSearchSpan = 20,
+    [int]$PortSearchSpan = 200,
     [string]$BackendHost = "127.0.0.1",
     [string]$FrontendHost = "127.0.0.1",
     [switch]$DryRun
@@ -252,6 +252,62 @@ function Get-PortListenerInfo {
     }
 }
 
+function Resolve-HostAddress {
+    param([string]$HostName)
+
+    $parsedAddress = [System.Net.IPAddress]::None
+    if ([System.Net.IPAddress]::TryParse($HostName, [ref]$parsedAddress)) {
+        return $parsedAddress
+    }
+
+    $addresses = [System.Net.Dns]::GetHostAddresses($HostName)
+    $address = $addresses |
+        Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } |
+        Select-Object -First 1
+
+    if ($null -eq $address) {
+        $address = $addresses | Select-Object -First 1
+    }
+
+    if ($null -eq $address) {
+        throw "Unable to resolve host address: $HostName"
+    }
+
+    return $address
+}
+
+function Test-PortBindable {
+    param(
+        [string]$HostName,
+        [int]$Port
+    )
+
+    $listener = $null
+
+    try {
+        $address = Resolve-HostAddress -HostName $HostName
+        $listener = [System.Net.Sockets.TcpListener]::new($address, $Port)
+        $listener.Server.ExclusiveAddressUse = $true
+        $listener.Start()
+
+        return [pscustomobject]@{
+            Bindable = $true
+            Reason   = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Bindable = $false
+            Reason   = $_.Exception.Message
+        }
+    }
+    finally {
+        if ($null -ne $listener) {
+            $listener.Stop()
+        }
+    }
+}
+
 function Test-ManagedRepoProcess {
     param(
         [pscustomobject]$Listener,
@@ -309,23 +365,39 @@ function Stop-ProcessTree {
 function Resolve-ServicePort {
     param(
         [string]$ServiceName,
+        [string]$HostName,
         [int]$PreferredPort,
         [string[]]$RestartMarkers
     )
 
     $listener = Get-PortListenerInfo -Port $PreferredPort
     if ($null -eq $listener) {
-        return $PreferredPort
-    }
+        $bindCheck = Test-PortBindable -HostName $HostName -Port $PreferredPort
+        if ($bindCheck.Bindable) {
+            return $PreferredPort
+        }
 
-    if (Test-ManagedRepoProcess -Listener $listener -Markers $RestartMarkers) {
+        Write-StackWarn "$ServiceName preferred port $PreferredPort is not bindable on $HostName. $($bindCheck.Reason) Searching for another port."
+    }
+    elseif (Test-ManagedRepoProcess -Listener $listener -Markers $RestartMarkers) {
         Stop-ProcessTree -ProcessId $listener.ProcessId -Reason "$ServiceName already owned preferred port $PreferredPort"
         return $PreferredPort
     }
 
     for ($candidate = $PreferredPort + 1; $candidate -le ($PreferredPort + $PortSearchSpan); $candidate++) {
-        if ($null -eq (Get-PortListenerInfo -Port $candidate)) {
-            Write-StackWarn "$ServiceName preferred port $PreferredPort is busy by PID $($listener.ProcessId). Using port $candidate instead."
+        if ($null -ne (Get-PortListenerInfo -Port $candidate)) {
+            continue
+        }
+
+        $candidateBindCheck = Test-PortBindable -HostName $HostName -Port $candidate
+        if ($candidateBindCheck.Bindable) {
+            if ($null -eq $listener) {
+                Write-StackWarn "$ServiceName preferred port $PreferredPort cannot be bound. Using port $candidate instead."
+            }
+            else {
+                Write-StackWarn "$ServiceName preferred port $PreferredPort is busy by PID $($listener.ProcessId). Using port $candidate instead."
+            }
+
             return $candidate
         }
     }
@@ -406,12 +478,12 @@ try {
         $script:jobHandle = New-KillOnCloseJob
     }
 
-    $resolvedBackendPort = Resolve-ServicePort -ServiceName "Backend" -PreferredPort $BackendPort -RestartMarkers @(
+    $resolvedBackendPort = Resolve-ServicePort -ServiceName "Backend" -HostName $BackendHost -PreferredPort $BackendPort -RestartMarkers @(
         "novelgraph-api",
         "cargo run -p novelgraph-api",
         "crates\api"
     )
-    $resolvedFrontendPort = Resolve-ServicePort -ServiceName "Frontend" -PreferredPort $FrontendPort -RestartMarkers @(
+    $resolvedFrontendPort = Resolve-ServicePort -ServiceName "Frontend" -HostName $FrontendHost -PreferredPort $FrontendPort -RestartMarkers @(
         "pnpm --filter web dev",
         "apps\web",
         "vite dev"

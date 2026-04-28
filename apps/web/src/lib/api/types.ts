@@ -13,6 +13,8 @@ export type Novel = {
 	title: string;
 	author: string | null;
 	source_language: string | null;
+	genre: string | null;
+	description: string | null;
 	created_at: string;
 	updated_at: string;
 };
@@ -67,7 +69,9 @@ export type AnalysisRunSnapshot = {
 	next_chapter_num: number | null;
 	paused_reason: string | null;
 	chapters: AnalysisChapterState[];
+	character_aliases: StoryCharacterAlias[];
 	character_records: StoryExtractionRecord[];
+	relationship_records: StoryExtractionRecord[];
 };
 
 export type StoryEvidenceSpan = {
@@ -94,6 +98,24 @@ export type StoryExtractionFieldValue = {
 	relationship_type: string | null;
 	relationship_label: string | null;
 	relationship_direction: string | null;
+	evidence: StoryEvidenceSpan[];
+	created_at: string;
+	updated_at: string;
+};
+
+export type StoryCharacterAlias = {
+	id: string;
+	project_id: string;
+	novel_id: string;
+	job_id: string;
+	entity_key: string;
+	display_name: string;
+	alias_text: string;
+	alias_key: string;
+	alias_type: string;
+	alias_label: string;
+	confidence: number | null;
+	first_chapter_num: number;
 	evidence: StoryEvidenceSpan[];
 	created_at: string;
 	updated_at: string;
@@ -159,7 +181,26 @@ export type NovelImportInput = {
 	title: string;
 	author?: string | null;
 	source_language?: string | null;
+	genre?: string | null;
+	description?: string | null;
 	text: string;
+};
+
+export type NovelMetadataUpdateInput = {
+	title?: string | null;
+	author?: string | null;
+	source_language?: string | null;
+	genre?: string | null;
+	description?: string | null;
+};
+
+export type NovelMetadataSuggestion = {
+	title: string | null;
+	author: string | null;
+	source_language: string | null;
+	genre: string | null;
+	description: string | null;
+	confidence: number | null;
 };
 
 export type NovelImportResult = {
@@ -175,8 +216,11 @@ export type ProjectWorkspaceSnapshot = {
 	active_novel: Novel | null;
 	chapters: Chapter[];
 	latest_analysis_job: AnalysisJob | null;
+	latest_analysis_chapters: AnalysisChapterState[];
 	latest_job_events: JobEvent[];
+	character_aliases: StoryCharacterAlias[];
 	character_records: StoryExtractionRecord[];
+	relationship_records: StoryExtractionRecord[];
 };
 
 export type DeleteProjectResult = {
@@ -237,6 +281,40 @@ export type LocalLlmHealth = {
 	reachable: boolean;
 	status_code: number | null;
 	status_text: string | null;
+};
+
+export type ByokProviderPreset = {
+	id: string;
+	name: string;
+	base_url: string;
+	default_model: string;
+	models: string[];
+	api_format: string;
+};
+
+export type ByokProviderConfig = {
+	provider: string;
+	display_name: string;
+	base_url: string;
+	model: string;
+	api_format: string;
+	has_api_key: boolean;
+	api_key_masked: string;
+	key_fingerprint: string | null;
+	session_only: boolean;
+	last_checked_at: string | null;
+	last_health_status: string | null;
+	updated_at: string | null;
+};
+
+export type ByokProviderKeyHealth = {
+	provider: string;
+	base_url: string;
+	model: string;
+	valid: boolean;
+	status_code: number | null;
+	message: string;
+	checked_at: string;
 };
 
 export type ApiErrorEnvelope = {

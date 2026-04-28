@@ -2,10 +2,14 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import {
 	activateManagedLocalModel,
 	ApiClientError,
+	checkByokKey as checkByokKeyHealth,
 	downloadPresetLocalModel,
+	getByokConfig,
 	getLocalLlmHealth,
 	getLocalLlmRuntime,
+	listByokProviders,
 	pickExistingLocalModel,
+	saveByokConfig,
 	startSelectedLocalModel,
 	stopLocalLlmServer
 } from '$lib/server/api';
@@ -24,9 +28,11 @@ function actionErrorMessage(error: unknown, fallback: string) {
 }
 
 export const load: PageServerLoad = async ({ fetch }) => {
-	const [runtimeResult, healthResult] = await Promise.allSettled([
+	const [runtimeResult, healthResult, byokProvidersResult, byokConfigResult] = await Promise.allSettled([
 		getLocalLlmRuntime(fetch),
-		getLocalLlmHealth(fetch)
+		getLocalLlmHealth(fetch),
+		listByokProviders(fetch),
+		getByokConfig(fetch)
 	]);
 
 	return {
@@ -43,11 +49,87 @@ export const load: PageServerLoad = async ({ fetch }) => {
 				? healthResult.reason instanceof ApiClientError
 					? healthResult.reason.message
 					: 'Không thể kiểm tra local LLM health.'
+				: null,
+		byokProviders: byokProvidersResult.status === 'fulfilled' ? byokProvidersResult.value : [],
+		byokConfig: byokConfigResult.status === 'fulfilled' ? byokConfigResult.value : null,
+		byokError:
+			byokConfigResult.status === 'rejected'
+				? byokConfigResult.reason instanceof ApiClientError
+					? byokConfigResult.reason.message
+					: 'Không thể nạp cấu hình BYOK.'
 				: null
 	};
 };
 
 export const actions: Actions = {
+	saveByokSettings: async ({ fetch, request }) => {
+		const formData = await request.formData();
+		const provider = String(formData.get('provider') ?? '').trim();
+		const baseUrl = String(formData.get('base_url') ?? '').trim();
+		const model = String(formData.get('model') ?? '').trim();
+		const apiKey = String(formData.get('api_key') ?? '').trim();
+
+		try {
+			const result = await saveByokConfig(fetch, {
+				provider,
+				base_url: baseUrl,
+				model,
+				api_key: apiKey || null,
+				session_only: false
+			});
+
+			return {
+				byokAction: {
+					kind: 'saveByokSettings',
+					success: true,
+					message: result.saved_api_key
+						? 'Đã lưu cấu hình và API key vào DB.'
+						: 'Đã lưu cấu hình, giữ nguyên API key hiện có.'
+				}
+			};
+		} catch (error) {
+			return fail(400, {
+				byokAction: {
+					kind: 'saveByokSettings',
+					success: false,
+					error: actionErrorMessage(error, 'Không thể lưu cấu hình BYOK.')
+				}
+			});
+		}
+	},
+	checkByokKey: async ({ fetch, request }) => {
+		const formData = await request.formData();
+		const provider = String(formData.get('provider') ?? '').trim();
+		const baseUrl = String(formData.get('base_url') ?? '').trim();
+		const model = String(formData.get('model') ?? '').trim();
+		const apiKey = String(formData.get('api_key') ?? '').trim();
+
+		try {
+			const health = await checkByokKeyHealth(fetch, {
+				provider,
+				base_url: baseUrl,
+				model,
+				api_key: apiKey || null
+			});
+
+			return {
+				byokAction: {
+					kind: 'checkByokKey',
+					success: health.valid,
+					health,
+					message: health.valid ? 'Healthy key.' : 'Key chưa healthy.'
+				}
+			};
+		} catch (error) {
+			return fail(400, {
+				byokAction: {
+					kind: 'checkByokKey',
+					success: false,
+					error: actionErrorMessage(error, 'Không thể kiểm tra API key.')
+				}
+			});
+		}
+	},
 	pickExistingModel: async ({ fetch }) => {
 		try {
 			await pickExistingLocalModel(fetch);

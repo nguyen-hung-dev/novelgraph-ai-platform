@@ -2,19 +2,12 @@
 	import MetricCard from '$lib/components/MetricCard.svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
-	import {
-		countWords,
-		formatTimestamp,
-		jobStatusTone,
-		prettyEventLabel,
-		summarizeEventPayload
-	} from '$lib/workspace/presenters';
+	import { countWords } from '$lib/workspace/presenters';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const latestJob = $derived(data.workspace.latest_analysis_job);
-	const latestEvents = $derived(data.workspace.latest_job_events);
 </script>
 
 <div class="page-stack">
@@ -76,78 +69,5 @@
 				</div>
 			{/if}
 		</Panel>
-
-		<div class="list-stack">
-			<Panel subtitle="Latest durable analysis job for the active novel" title="Analysis queue">
-				{#if latestJob}
-					<div class="detail-list">
-						<div class="status-row">
-							<StatusPill label={latestJob.status} tone={jobStatusTone(latestJob.status)} />
-							<StatusPill label={latestJob.job_type} />
-						</div>
-						<div class="callout-box">
-							<div class="nav-link__title">{latestJob.id}</div>
-							<div class="nav-link__meta">
-								Created {formatTimestamp(latestJob.created_at)} · {latestEvents.length} event(s) recorded
-							</div>
-						</div>
-						{#if latestJob.finished_at}
-							<div class="nav-link__meta">Finished {formatTimestamp(latestJob.finished_at)}</div>
-						{/if}
-						{#if latestJob.error_message}
-							<div class="warning-box">
-								<div class="nav-link__title">Last error</div>
-								<div class="nav-link__meta">{latestJob.error_message}</div>
-							</div>
-						{/if}
-					</div>
-				{:else}
-					<div class="empty-note">
-						Chưa có analysis job nào. Xác nhận import sẽ tạo pending job đầu tiên cho truyện này.
-					</div>
-				{/if}
-			</Panel>
-
-			<Panel subtitle="Operator-readable trail from job_events" title="Latest events">
-				{#if latestEvents.length > 0}
-					<div class="detail-list">
-						{#each latestEvents as event (event.id)}
-							<div class="event-row">
-								<div>
-									<div class="nav-link__title">{prettyEventLabel(event.event_type)}</div>
-									<div class="nav-link__meta">{summarizeEventPayload(event)}</div>
-								</div>
-								<StatusPill label={`#${event.sequence}`} />
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="empty-note">Chưa có event nào cho project này.</div>
-				{/if}
-			</Panel>
-
-			<Panel subtitle="Current execution boundary" title="Runtime notes">
-				<div class="detail-list">
-					<div class="event-row">
-						<div>
-							<div class="nav-link__title">Local-first execution</div>
-							<div class="nav-link__meta">
-								Workspace này ưu tiên llama.cpp local trước; cloud providers vẫn nằm sau BYOK
-								boundary.
-							</div>
-						</div>
-					</div>
-					<div class="event-row">
-						<div>
-							<div class="nav-link__title">Observation persistence chưa bật</div>
-							<div class="nav-link__meta">
-								Draft extraction endpoint hiện chỉ trả về raw response và prompt metadata để đánh
-								giá chất lượng.
-							</div>
-						</div>
-					</div>
-				</div>
-			</Panel>
-		</div>
 	</section>
 </div>

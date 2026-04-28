@@ -3,12 +3,18 @@ import type {
 	AnalysisJob,
 	AnalysisRunSnapshot,
 	ApiErrorEnvelope,
+	ByokProviderConfig,
+	ByokProviderKeyHealth,
+	ByokProviderPreset,
 	DeleteProjectResult,
 	ImportPreview,
 	LocalLlmHealth,
 	LocalLlmRuntimeSnapshot,
+	Novel,
 	NovelImportInput,
 	NovelImportResult,
+	NovelMetadataSuggestion,
+	NovelMetadataUpdateInput,
 	Project,
 	ProjectWorkspaceSnapshot
 } from '$lib/api/types';
@@ -118,6 +124,51 @@ export async function confirmNovelImport(
 	);
 }
 
+export async function suggestNovelImportMetadata(
+	fetchFn: FetchLike,
+	projectId: string,
+	input: NovelImportInput
+) {
+	return requestJson<NovelMetadataSuggestion>(
+		fetchFn,
+		`/api/projects/${projectId}/novels/import/metadata-suggest`,
+		{
+			method: 'POST',
+			body: JSON.stringify(input)
+		}
+	);
+}
+
+export async function updateNovelMetadata(
+	fetchFn: FetchLike,
+	projectId: string,
+	novelId: string,
+	input: NovelMetadataUpdateInput
+) {
+	return requestJson<Novel>(
+		fetchFn,
+		`/api/projects/${projectId}/novels/${novelId}/metadata`,
+		{
+			method: 'POST',
+			body: JSON.stringify(input)
+		}
+	);
+}
+
+export async function aiFillNovelMetadata(
+	fetchFn: FetchLike,
+	projectId: string,
+	novelId: string
+) {
+	return requestJson<Novel>(
+		fetchFn,
+		`/api/projects/${projectId}/novels/${novelId}/metadata/ai-fill`,
+		{
+			method: 'POST'
+		}
+	);
+}
+
 export async function cancelAnalysisJob(fetchFn: FetchLike, projectId: string, jobId: string) {
 	return requestJson<AnalysisJob>(
 		fetchFn,
@@ -216,4 +267,58 @@ export async function downloadPresetLocalModel(fetchFn: FetchLike, presetId: str
 			method: 'POST'
 		}
 	);
+}
+
+export async function listByokProviders(fetchFn: FetchLike) {
+	return requestJson<ByokProviderPreset[]>(fetchFn, '/api/byok/providers');
+}
+
+export async function getByokConfig(fetchFn: FetchLike) {
+	return requestJson<ByokProviderConfig>(fetchFn, '/api/byok/config');
+}
+
+export async function saveByokConfig(
+	fetchFn: FetchLike,
+	input: {
+		provider: string;
+		base_url: string;
+		model: string;
+		api_key?: string | null;
+		session_only?: boolean;
+	}
+) {
+	return requestJson<{ config: ByokProviderConfig; saved_api_key: boolean }>(
+		fetchFn,
+		'/api/byok/config',
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				provider: input.provider,
+				base_url: input.base_url,
+				model: input.model,
+				api_key: input.api_key ?? null,
+				session_only: Boolean(input.session_only)
+			})
+		}
+	);
+}
+
+export async function checkByokKey(
+	fetchFn: FetchLike,
+	input: {
+		provider: string;
+		base_url: string;
+		model: string;
+		api_key?: string | null;
+	}
+) {
+	return requestJson<ByokProviderKeyHealth>(fetchFn, '/api/byok/health-check', {
+		method: 'POST',
+		body: JSON.stringify({
+			provider: input.provider,
+			base_url: input.base_url,
+			model: input.model,
+			api_key: input.api_key ?? null
+		})
+	});
 }

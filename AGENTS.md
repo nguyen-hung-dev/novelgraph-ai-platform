@@ -6,6 +6,8 @@ NovelGraph AI Platform is a new hybrid web/desktop rewrite. Keep the product as 
 
 Before substantial implementation work, read `.codex/README.md`, `.codex/project-context.md`, and `.codex/implementation-rules.md`. For phase-specific work, also read the matching file in `.codex/tasks/`.
 
+For module layout, file-size governance, and refactor sequencing, read `docs/module-architecture.md` and `docs/checklists/11-module-refactor-checklist.md`.
+
 Primary goals:
 
 - Hosted web app with BYOK LLM keys.
@@ -21,6 +23,8 @@ Primary goals:
 - `packages/`: future shared generated schemas/types.
 - `docs/`: architecture, implementation plan, ADRs, and security notes.
 
+Target module layout is documented in `docs/module-architecture.md`. Use it as the source of truth when adding new directories or splitting large files.
+
 ## Engineering Rules
 
 - Do not put secrets in the repo.
@@ -32,6 +36,8 @@ Primary goals:
 - Keep renderers for graph/map/timeline independent from the UI framework where practical.
 - Start with minimal vertical slices before porting complex visualizations.
 - Develop features in small manual-testable slices. Do not bundle unrelated work into one large pack.
+- Apply the file-size budget to hand-written source and docs: soft limit 800 lines, hard limit 1200 lines. Do not add feature logic to files over the hard limit. Files over the soft limit need a split plan or an in-scope extraction.
+- When a feature touches `crates/api/src/lib.rs`, `crates/storage/src/sqlite.rs`, `crates/core/src/extraction.rs`, or a large `+page.svelte`, prefer extracting route/service/repository/component modules before adding more workflow logic.
 - The user should be able to manually test each meaningful feature before the next feature slice starts.
 - Avoid running broad automated test commands unless the user explicitly asks for them. Use only lightweight checks when necessary and say what was checked.
 - Prefer inline editing for visible domain data. Double-click enters edit mode, blur or Enter saves to DB through typed API, and Escape cancels.

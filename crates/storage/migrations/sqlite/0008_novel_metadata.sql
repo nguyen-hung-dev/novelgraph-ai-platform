@@ -1,0 +1,2 @@
+ALTER TABLE novels ADD COLUMN genre TEXT;
+ALTER TABLE novels ADD COLUMN description TEXT;

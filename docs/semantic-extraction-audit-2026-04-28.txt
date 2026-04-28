@@ -1,0 +1,402 @@
+BÁO CÁO KIỂM TRA SAI NGỮ NGHĨA PIPELINE TRÍCH XUẤT
+Ngày kiểm tra: 2026-04-28
+DB kiểm tra: data/novelgraph.sqlite3
+Project: proj_019dd4c1d8a07ed0a294ba51df8e606c
+Novel: Phàm Nhân Tu Tiên
+Tác giả: Vong Ngữ
+Source language: vi
+Genre: Tiên hiệp
+Description: Câu chuyện về Hàn Lập, một cậu bé nghèo ở thôn quê, được tam thúc đưa đến thị thành để tham gia kỳ thi chiêu đệ tử của môn phái Thất Huyền Môn, mở ra con đường tu tiên của cậu.
+Job: job_019dd4c29a317661b581db8a0f268480
+Trạng thái job: paused
+Error code: analysis_range_completed
+Error message: Đã chạy xong phạm vi chương 1 -> 5.
+
+Ghi chú: báo cáo này chỉ query DB sau lượt chạy mới, không chạy lại pipeline và không sửa dữ liệu.
+
+1. Phạm vi dữ liệu đã kiểm tra
+
+- Chương 1: completed.
+- Chương 2: completed.
+- Chương 3: completed.
+- Chương 4: completed.
+- Chương 5: completed.
+
+Số lượng bản ghi theo chương:
+
+- Chương 1: 8 character records, 5 relationship records.
+- Chương 2: 6 character records, 3 relationship records.
+- Chương 3: 5 character records, 3 relationship records.
+- Chương 4: 6 character records, 4 relationship records.
+- Chương 5: 9 character records, 8 relationship records.
+
+Nhận xét nhanh so với báo cáo trước:
+
+- Chương 5 không còn là dữ liệu partial; relationship đã được ghi đầy đủ.
+- Các field confidence 0.0 và field phủ định kiểu "không có mô tả ngoại hình" không còn thấy trong DB của lượt này.
+- Alias "lão Hàn béo" không còn bị lưu trực tiếp dưới Hàn Lập trong alias map, nhưng canonical merge vẫn chưa đúng vì tam thúc, Hàn béo mập và Lão Hàn vẫn bị tách rời.
+- Field pass vẫn còn gán sai owner và vẫn lẫn ngoại hình với trạng thái/hành động/biểu cảm.
+- Relationship pass vẫn ghi nhiều event hoặc tương tác tạm thời như relationship.
+
+2. Sai do pipeline
+
+2.1. Trạng thái job gây hiểu nhầm
+
+DB ghi:
+
+- analysis_jobs.status = paused.
+- analysis_jobs.error_code = analysis_range_completed.
+- analysis_jobs.error_message = Đã chạy xong phạm vi chương 1 -> 5.
+- Cả 5 analysis_chapter_runs đều completed.
+
+Nguyên nhân:
+
+- Pipeline dùng trạng thái paused để dừng sau khi chạy xong phạm vi chapter_start -> chapter_end.
+- Đây không phải lỗi trích xuất dữ liệu, nhưng là lỗi UX/trạng thái vì "paused" thường được hiểu là còn dang dở.
+
+Đề xuất:
+
+- Nếu đã chạy xong phạm vi người dùng chọn, job nên có trạng thái completed hoặc completed_range.
+- Nếu vẫn muốn giữ paused để không chạy tiếp ngoài range, UI phải hiển thị "Đã chạy xong phạm vi chương 1 -> 5" thay vì chỉ hiện paused.
+
+2.2. Canonical resolver chưa merge đúng tam thúc, Hàn béo mập và Lão Hàn
+
+Ví dụ trong DB:
+
+- Chương 1 có character canonical: tam thúc.
+- Chương 2 có character canonical: Hàn béo mập.
+- Chương 2 có character canonical: Lão Hàn.
+- Chương 2 vẫn còn character riêng: Hàn Lập tam thúc.
+
+Evidence đáng chú ý:
+
+- "Hai người này chính là nhân vật chính Hàn Lập của chúng ta và tam thúc của hắn, được mọi người trong trấn gọi là "lão Hàn béo"..."
+- "Khách hàng trong tửu lâu cũng có người nhận ra lão béo, biết rằng lão là chưởng quĩ "Hàn béo mập" của tửu lâu..."
+- "Lão Hàn mập chỉ vào một căn phòng trong nội viện..."
+
+Nhận định:
+
+- Các surface tam thúc, lão Hàn béo, Hàn béo mập và Lão Hàn nhiều khả năng đang chỉ cùng một nhân vật.
+- Pipeline hiện đã tránh được lỗi nhập "lão Hàn béo" vào Hàn Lập, nhưng lại chưa nhập các surface này về canonical tam thúc hoặc một canonical ổn định hơn.
+- "Hàn Lập tam thúc" là cụm sở hữu/quan hệ, không phải một character name độc lập.
+
+Nguyên nhân:
+
+- Alias ownership và canonical resolver vẫn xử lý theo surface từng chunk, chưa có pass quyết định alias owner ở cấp câu đủ mạnh.
+- Resolver chưa có bước "surface này là nhân vật mới hay alias của character đã có trong toàn truyện" với evidence ngắn.
+- Cụm sở hữu kiểu "[nhân vật A] [quan hệ]" vẫn có thể lọt thành entity mới.
+
+Đề xuất:
+
+- Trước khi tạo character mới, thêm verifier: surface mới có phải tên/danh xưng độc lập không, hay là cụm sở hữu/quan hệ của character đã biết.
+- Với câu có nhiều nhân vật và alias được gọi tên, tạo pass alias-owner theo câu: trả owner_surface, alias_surface, confidence, evidence.
+- Resolver xuyên chương phải nhận alias map cũ, character đã biết, và evidence hiện tại để quyết định merge.
+- Không auto tạo canonical từ cụm có dạng quan hệ sở hữu nếu model không xác nhận đó là tên độc lập.
+
+2.3. Alias owner sai nghiêm trọng ở chương 5: Mặc đại phu, Mặc lão, Mặc phu bị nhập vào Hàn Lập
+
+DB ghi:
+
+- story_character_aliases:
+  - Hàn Lập -> Mặc lão.
+  - Hàn Lập -> Mặc phu.
+- raw_record_json chương 5 của Hàn Lập có mentions:
+  - Mặc đại phu.
+  - Mặc phu.
+  - Mặc lão.
+
+Evidence:
+
+- ""Các ngươi sau này có thể gọi ta là Mặc lão.""
+- "Còn chưa ra bái kiến Mặc lão?"
+- "năng được Mặc phu ngài xem trúng là phúc khí của bọn họ."
+
+Nhận định:
+
+- Đây là sai ngữ nghĩa rất nặng vì Mặc đại phu/Mặc lão/Mặc phu là nhân vật khác, không phải alias của Hàn Lập.
+- Lỗi này kéo theo highlight sai trên UI reading vì backend scan alias map rồi gán các mention Mặc đại phu/Mặc lão/Mặc phu vào Hàn Lập.
+
+Nguyên nhân:
+
+- Alias ownership pass cho phép alias mới nhập vào canonical đã có nếu model trả owner sai.
+- Pipeline chưa có guard cho self-introduction hoặc lời thoại kiểu "gọi ta là X": owner phải là người đang nói hoặc nhân vật được lời thoại nhắc đến, không phải target gần đó.
+- Resolver không bắt buộc alias mới phải có evidence owner rõ ràng trước khi nhập vào character đã tồn tại.
+
+Đề xuất:
+
+- Alias ownership verifier phải hỏi lại bằng một request nhỏ: alias này thuộc character nào trong danh sách candidate, hay là character mới.
+- Nếu alias evidence không nêu trực tiếp owner hoặc owner không resolve được, không ghi alias vào alias map.
+- Khi alias mới có họ/tên khác xa canonical hiện có và không xuất hiện bằng chứng "cùng một người", phải ưu tiên create/review thay vì merge.
+- Với self-introduction, model phải trả speaker_owner hoặc unknown; nếu unknown thì không persist alias.
+
+2.4. Generic role bị dùng như character canonical xuyên chương
+
+Ví dụ:
+
+- "cha mẹ" được tạo thành character canonical dù chương 1 đã có Hàn mẫu và Hàn phụ.
+- "Đại ca" xuất hiện ở chương 1 như anh của Hàn Lập, nhưng chương 3 lại tham gia relationship với Vũ Nham trong ngữ cảnh "đại ca" của đám trẻ.
+
+Nhận định:
+
+- "cha mẹ" là nhóm/quan hệ gia đình, không nên là một character đơn nếu đã có entity cha/mẹ riêng.
+- "Đại ca" là danh xưng theo ngữ cảnh; chương 1 và chương 3 có thể không phải cùng một người.
+
+Nguyên nhân:
+
+- Resolver đang merge hoặc tái dùng generic role theo surface giống nhau, thiếu scope ngữ cảnh.
+- Pipeline chưa phân biệt character cá thể, nhóm người, role title, và alias tạm thời.
+
+Đề xuất:
+
+- Identity pass nên trả entity_nature: individual_character, group, role_title, temporary_reference, uncertain.
+- Chỉ persist character canonical ngay với individual_character.
+- group và role_title cần đi qua resolver riêng hoặc chỉ dùng làm evidence/relationship context.
+- Generic role không nên tự động merge xuyên chương nếu không có tên riêng hoặc evidence nối ngữ nghĩa.
+
+2.5. Field pass vẫn gán sai owner
+
+Ví dụ sai:
+
+- Chương 4, Hàn Lập có Ngoại hình: "thân thể cường tráng hơn những đứa trẻ cùng lứa tuổi". Quote đang mô tả Vũ Nham, không phải Hàn Lập.
+- Chương 5, Hàn Lập có Ngoại hình: "bộ mặt gầy gầy". Evidence reason còn thừa nhận mô tả này không áp dụng cho Hàn Lập.
+- Chương 5, Nhạc đường chủ có Ngoại hình: "mặc áo bào". Quote mô tả lão giả mặc áo bào, không mô tả Nhạc đường chủ.
+- Chương 5, Vũ Nham có Ngoại hình: "thân mặc áo bào xanh thẫm". Quote mô tả vị lão giả đang nói chuyện với Vũ Nham.
+- Chương 5, Ngô Minh Thụy có Ngoại hình: "cao gầy". Quote là "Vị cao gầy sư huynh Ngô Minh...", trong khi canonical đang là Ngô Minh Thụy. Đây có thể là lỗi nhập tên hoặc lỗi substring/alias.
+
+Nguyên nhân:
+
+- Field context vẫn có nhiều nhân vật trong cùng câu/đoạn, model kéo thông tin nổi bật của nhân vật khác sang target.
+- DB gate hiện chưa đủ để loại field mà reason nói rõ "không áp dụng cho target".
+- Kiểm tra lexical grounding chưa đủ nếu quote có nhiều nhân vật hoặc model trộn reason sai.
+
+Đề xuất:
+
+- Thêm field verifier trước DB write: target + value + quote -> applies_to_target true/false.
+- Verifier phải trả owner_name nếu value thuộc nhân vật khác. Nếu owner_name khác target thì bỏ hoặc chuyển sang đúng character.
+- Không persist field nếu reason/evidence cho thấy value không thuộc target, kể cả confidence cao.
+- Field pass chỉ nên nhận context ngắn quanh mention target, tránh context có nhiều nhân vật nếu không cần.
+
+2.6. Field Ngoại hình vẫn lẫn trạng thái, hành động và biểu cảm
+
+Ví dụ sai hoặc cần review:
+
+- Chương 2, Vương hộ pháp: "vẻ mặt rất ngạo mạn". Đây là thái độ/biểu cảm trong cảnh, không phải ngoại hình ổn định.
+- Chương 5, Hàn Lập: "mệt mỏi". Đây là trạng thái tạm thời.
+- Chương 5, Vương hộ pháp: "khom người". Đây là hành động/tư thế nhất thời.
+- Chương 5, Vũ Nham: "không có chút động thân". Đây là trạng thái/hành động trong cảnh.
+- Chương 5, Trương Quân: "khuôn mặt đầy kính ý". Đây là biểu cảm/thái độ, không phải đặc điểm ngoại hình.
+- Chương 4, sư huynh: "đĩnh đạc thẳng đứng như những cây trúc". Đây nghiêng về tư thế/khí chất trong cảnh, cần tách khỏi ngoại hình ổn định.
+
+Nguyên nhân:
+
+- Model vẫn hiểu "có thể quan sát được" là ngoại hình.
+- Pipeline chỉ có field appearance nên model dồn nhiều loại thông tin vào đó.
+- Ngưỡng confidence không giải quyết được vì model tự tin nhưng phân loại sai.
+
+Đề xuất:
+
+- Appearance pass nên yêu cầu semantic_class cho mỗi value:
+  - physical_appearance.
+  - clothing.
+  - age_or_build.
+  - temporary_state.
+  - action_or_posture.
+  - emotion_or_attitude.
+  - uncertain.
+- Chỉ persist physical_appearance, clothing, age_or_build khi evidence rõ.
+- temporary_state/action_or_posture/emotion_or_attitude tạm bỏ, hoặc sau này đưa sang event/state module riêng.
+
+2.7. Relationship pass vẫn ghi event/tương tác tạm thời như relationship
+
+Ví dụ sai hoặc nhiễu:
+
+- Chương 2, Hàn Lập ↔ Vương hộ pháp: "Người chiếu cố" / "Người được tiến cử bởi". Evidence thực tế là Vương hộ pháp hỏi về người được tiến cử, không chứng minh quan hệ ổn định giữa Hàn Lập và Vương hộ pháp.
+- Chương 2, tam thúc ↔ Vương hộ pháp: "Người nhận tiền từ" / "Người trao tiền cho". Đây là hành động đưa tiền trong cảnh.
+- Chương 3, Hàn Lập ↔ Vũ Nham: "Cùng tham gia kỳ thi". Đây là cùng sự kiện, không phải quan hệ nhân vật.
+- Chương 4, Hàn Lập ↔ Vũ Nham: "Cạnh tranh với" / "Được Hàn Lập theo dõi". Đây là diễn biến trong kỳ thi.
+- Chương 4, Hàn Lập ↔ cha mẹ/tam thúc: "Nhận lời chúc từ" / "Đã đề tỉnh cho". Quan hệ gia đình đã có, nhưng label này là ký ức/sự kiện.
+- Chương 5, Hàn Lập ↔ sư huynh: "Ôm giúp", "Giải thích về Vũ Nham". Đây là hành động trong cảnh.
+- Chương 5, Nhạc đường chủ ↔ lão giả: "Có sự hiện diện cùng...". Đây chỉ là cùng xuất hiện.
+- Chương 5, Vũ Nham ↔ lão giả: "Trò chuyện với...". Đây là interaction tạm thời.
+- Chương 5, Trương Quân ↔ Ngô Minh Thụy: "Cùng lĩnh mệnh...". Đây là event/cùng nhiệm vụ.
+
+Nguyên nhân:
+
+- Relationship prompt đã có hướng stable_relation nhưng model vẫn muốn tạo label từ mọi tương tác.
+- Pipeline chỉ kiểm tra relationship_kind/confidence/evidence, nhưng chưa có verifier phân biệt stable relationship với event.
+- Schema hiện vẫn lưu relationship dạng value hai chiều, dễ chứa action label thay vì relation label.
+
+Đề xuất:
+
+- Relationship candidate phải trả relation_scope:
+  - stable_relationship.
+  - organization_hierarchy.
+  - kinship.
+  - temporary_interaction.
+  - shared_event.
+  - co_presence.
+  - uncertain.
+- Chỉ persist stable_relationship, organization_hierarchy, kinship.
+- temporary_interaction/shared_event/co_presence không ghi vào relationship table; sau này nếu cần thì chuyển sang event extraction.
+- Relationship verifier nên hỏi: "Nếu bỏ chương hiện tại, quan hệ này còn là quan hệ có ý nghĩa giữa hai nhân vật không?" Nếu không thì không persist relationship.
+
+2.8. Relationship record vẫn dễ gây hiểu nhầm chiều quan hệ
+
+Ví dụ:
+
+- Hàn Lập ↔ tam thúc có value "Cháu", "Chú", "Cháu của", "Chú của".
+- Hàn mẫu ↔ Hàn Lập có value "Con", "Mẹ".
+- Hàn phụ ↔ Hàn Lập có value "Cha", "Con".
+
+Nhận định:
+
+- Dữ liệu hai chiều là cần thiết, nhưng hiện field value đang nằm trong một record pair nên UI dễ đọc sai ai là source và ai là target.
+
+Đề xuất:
+
+- DB relationship nên lưu rõ:
+  - source_character_id.
+  - target_character_id.
+  - source_label_to_target.
+  - target_label_to_source.
+  - evidence.
+  - relation_scope.
+- UI hiển thị thành câu có hướng:
+  - Hàn Lập - cháu của - tam thúc.
+  - tam thúc - chú của - Hàn Lập.
+
+3. Sai do model yếu
+
+3.1. Model vẫn gán owner sai khi câu có nhiều nhân vật
+
+Ví dụ:
+
+- Câu có Hàn Lập, Vũ Nham và lão giả nhưng field trang phục của lão giả bị gán sang Vũ Nham.
+- Câu có Nhạc đường chủ và lão giả nhưng "mặc áo bào" bị gán sang Nhạc đường chủ.
+- Mặc lão/Mặc phu bị nhập vào Hàn Lập dù evidence nói rõ là Mặc đại phu/lão giả.
+
+Nhận xét:
+
+- Model yếu khi câu có nhiều entity và nhiều vai trò.
+- Prompt càng dài càng dễ làm model trả đúng cấu trúc nhưng sai owner.
+
+Đề xuất:
+
+- Không bắt một pass vừa đọc context, vừa xác định owner, vừa phân loại field.
+- Tách owner verification thành pass nhỏ với output rất ít.
+- Dùng candidate IDs thay vì chỉ tên tự do khi hỏi model chọn owner.
+
+3.2. Model vẫn lẫn ngoại hình với trạng thái/hành động
+
+Ví dụ:
+
+- "mệt mỏi" -> Ngoại hình.
+- "khom người" -> Ngoại hình.
+- "không có chút động thân" -> Ngoại hình.
+- "vẻ mặt rất ngạo mạn" -> Ngoại hình.
+- "khuôn mặt đầy kính ý" -> Ngoại hình.
+
+Nhận xét:
+
+- Đây là lỗi semantic của model. Prompt đã cứng hơn nhưng chưa đủ với model local yếu.
+- Cần verifier hoặc semantic_class, không nên chỉ dựa vào prompt chính.
+
+3.3. Model suy diễn relationship từ mọi tương tác
+
+Ví dụ:
+
+- "Trò chuyện với..."
+- "Có sự hiện diện cùng..."
+- "Cùng lĩnh mệnh..."
+- "Ôm giúp..."
+- "Được Hàn Lập theo dõi..."
+
+Nhận xét:
+
+- Model đang cố lấp output thay vì trả [] khi không có quan hệ ổn định.
+- Với truyện tiên hiệp, các quan hệ quan trọng thường là gia đình, sư môn, môn phái, cấp bậc, thầy trò, địch thủ, đồng môn, chủ tớ, ân nhân, kẻ thù. Các event ngắn không nên nhập vào relationship.
+
+Đề xuất:
+
+- Prompt relationship cần cho phép và khuyến khích trả [].
+- Không hỏi theo hướng "hãy tìm quan hệ cho mọi cặp", mà hỏi "chỉ trả quan hệ bền hoặc quan hệ tổ chức nếu evidence đủ rõ".
+
+3.4. Model trả reason tự mâu thuẫn
+
+Ví dụ:
+
+- Chương 2, record Hàn béo mập có alias "lão Hàn béo", nhưng reason trong raw JSON lại viết rằng "lão Hàn béo" là cách gọi nhân vật chính Hàn Lập.
+- Chương 5, field "bộ mặt gầy gầy" của Hàn Lập có reason nói mô tả này là của Vũ Nham và không áp dụng cho Hàn Lập, nhưng value vẫn được persist.
+
+Nhận xét:
+
+- Không thể dùng confidence của model làm chuẩn duy nhất.
+- Reason có thể chứa dấu hiệu bác bỏ, nhưng pipeline hiện vẫn tin vào field/value.
+
+Đề xuất:
+
+- Verifier phải trả boolean machine-readable, không dựa vào reason văn xuôi.
+- Nếu response có reason tự mâu thuẫn với owner/value, verifier phải reject.
+
+4. Những điểm đã cải thiện
+
+- Chương 1 ngoại hình Hàn Lập và tam thúc nhìn hợp lý hơn:
+  - Hàn Lập: "da tay đen đúa", "trông không có gì khác biệt so với những đứa trẻ khác trong làng".
+  - tam thúc: "toàn thân diện y phục mới, khuôn mặt béo tròn".
+- Chương 1 quan hệ gia đình cơ bản khá đúng:
+  - Hàn Chú ↔ Hàn Lập.
+  - Hàn mẫu ↔ Hàn Lập.
+  - Hàn phụ ↔ Hàn Lập.
+  - Hàn Lập ↔ tam thúc.
+- Các field phủ định hoặc confidence 0.0 không còn nổi bật trong lượt này.
+- Relationship chapter 5 đã có dữ liệu, không còn partial như lượt trước.
+
+5. Các lỗi cần ưu tiên sửa tiếp
+
+Ưu tiên 1: sửa alias ownership và canonical merge
+
+- Chặn Mặc đại phu/Mặc lão/Mặc phu nhập vào Hàn Lập.
+- Merge tam thúc, Hàn béo mập, Lão Hàn, lão Hàn béo về một canonical.
+- Chặn "Hàn Lập tam thúc" thành character mới.
+- Không auto merge generic role như Đại ca xuyên chương nếu chưa có evidence.
+
+Lý do: alias/canonical sai sẽ kéo sai highlight, sai field, sai relationship và làm UI đọc truyện sai rất nặng.
+
+Ưu tiên 2: thêm field verifier trước khi ghi DB
+
+- Verifier kiểm tra value có thuộc target không.
+- Verifier phân loại semantic_class.
+- Reject nếu value là hành động/trạng thái/biểu cảm tạm thời nhưng field là Ngoại hình.
+- Reject nếu quote mô tả nhân vật khác.
+
+Lý do: field pass vẫn còn tạo dữ liệu bẩn dù confidence cao.
+
+Ưu tiên 3: tách relationship ổn định khỏi event
+
+- Chỉ persist kinship, sư môn/môn phái, cấp bậc, thầy trò, đồng môn, địch thủ, quan hệ xã hội ổn định có evidence rõ.
+- Không persist co-presence, cùng tham gia, cùng nhận lệnh, trò chuyện, ôm giúp, theo dõi, chúc phúc, đưa tiền như relationship.
+
+Lý do: relationship hiện lẫn quá nhiều event/tương tác một cảnh.
+
+Ưu tiên 4: chuẩn hóa trạng thái job sau range run
+
+- Range 1 -> 5 chạy xong nên không hiện như paused lỗi.
+- UI cần phân biệt paused do user/local LLM với completed_range.
+
+6. Kết luận
+
+Lượt chạy mới có tiến bộ rõ ở việc chạy đủ chương 1-5 và giảm một số field rác confidence thấp. Tuy nhiên lỗi trọng yếu vẫn nằm ở ba lớp:
+
+- Pipeline: canonical/alias resolver chưa đủ mạnh, field write gate chưa có verifier semantic, relationship vẫn nhập event vào relationship.
+- Model yếu: model lẫn owner khi context có nhiều nhân vật, lẫn ngoại hình với trạng thái/hành động, và suy diễn relationship từ tương tác tạm thời.
+- UX/state: job chạy xong range nhưng vẫn ở trạng thái paused, dễ gây hiểu nhầm.
+
+Hướng xử lý phù hợp không phải tăng prompt lớn hơn. Cần thêm các pass nhỏ có quyết định rõ:
+
+- Alias owner verifier theo câu.
+- Canonical merge verifier xuyên chương.
+- Field target verifier.
+- Field semantic_class verifier.
+- Relationship scope verifier.
+
+Mục tiêu là để model local yếu chỉ phải trả lời từng quyết định nhỏ, còn pipeline chịu trách nhiệm chống ghi sai vào DB.

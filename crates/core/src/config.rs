@@ -41,6 +41,8 @@ pub struct AppConfig {
     pub llama_cpp_default_model: String,
     pub llama_cpp_server_bin: String,
     pub llama_cpp_timeout_secs: u64,
+    pub secrets_encryption_key: Option<String>,
+    pub secrets_key_path: PathBuf,
 }
 
 impl AppConfig {
@@ -58,6 +60,16 @@ impl AppConfig {
                 .is_none()
                 .then(|| "data/novelgraph.sqlite3".to_string())
         });
+        let secrets_key_path = env::var("SECRETS_KEY_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let data_dir = sqlite_database_path
+                    .as_deref()
+                    .and_then(|path| PathBuf::from(path).parent().map(PathBuf::from))
+                    .unwrap_or_else(|| PathBuf::from("data"));
+
+                data_dir.join("secrets").join("byok.key")
+            });
         let llama_cpp_timeout_secs = env::var("LLAMA_CPP_TIMEOUT_SECS")
             .unwrap_or_else(|_| "120".to_string())
             .parse::<u64>()
@@ -78,6 +90,11 @@ impl AppConfig {
             llama_cpp_server_bin: env::var("LLAMA_CPP_SERVER_BIN")
                 .unwrap_or_else(|_| default_llama_cpp_server_bin()),
             llama_cpp_timeout_secs,
+            secrets_encryption_key: env::var("SECRETS_ENCRYPTION_KEY")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            secrets_key_path,
         })
     }
 

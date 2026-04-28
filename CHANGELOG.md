@@ -8,6 +8,42 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 No unreleased changes yet.
 
+## [0.11.0] - 2026-04-29
+
+### Changed
+
+- Added persisted BYOK settings for Google Gemini on the Settings page, including encrypted per-user DB storage, masked API key display, Gemini model dropdown presets, and a backend key health check.
+- Added a creation-review gate before new character records are persisted and tightened alias ownership evidence checks so ambiguous surfaces are rejected or merged before they can poison the cross-chapter alias map.
+- Added a field-value verification gate before character fields are persisted so appearance values must belong to the target character and classify as stable visual appearance, clothing, or build instead of action, state, emotion, relationship, or another character's detail.
+- Added a relationship verification gate before relationship records are persisted so temporary interactions, shared events, co-presence, scene actions, and alias-only links are rejected instead of being stored as story graph relationships.
+- Added current-novel metadata, including Genre and Description, to analysis prompt context so local AI can choose genre-appropriate labels and extraction style while still requiring chapter evidence.
+- Tightened the character appearance field prompt so transient actions, emotions, attitudes, sounds, symptoms, expressions, relationship labels, and negative/no-data statements are rejected instead of being persisted as `Ngoại hình`.
+- Changed relationship extraction to use a full-chapter candidate pass with grounded evidence and canonical character endpoint resolution instead of sending every non-duplicate character pair to the local LLM.
+- Tightened the relationship candidate prompt so the local LLM infers story-specific relationship labels from current-chapter evidence without relying on a fixed taxonomy.
+- Added a non-blocking character candidate coverage pass before identity extraction so local models get a broader alias checklist, alias evidence can be preserved, and candidate hints can merge into the stable identity pipeline without stopping the run when the candidate pass fails.
+- Changed the Reading character detail panel to aggregate aliases, fields, and relationships across all analyzed chapters for the same canonical character while keeping highlights scoped to the currently open chapter.
+- Added a high-confidence canonical character resolver that compares new identities against DB and in-memory records with accent-folded name/alias surfaces before creating a new character record.
+- Added a conservative AI confirmation step for ambiguous character identity merges, returning `merge_existing`, `create_new`, or `ignore` without blocking the analysis run when the local model cannot parse the confirmation JSON.
+- Added a persisted character alias map that materializes canonical names and aliases per analysis job, exposes it through workspace/run snapshots, and lets the Reading info panel prefer the alias map with a field-based fallback for older data.
+- Changed character identity resolution to prefer the persisted alias map for exact alias matches, high-confidence canonical matching, and ambiguous merge candidates while retaining field-based fallback for older runs.
+- Added per-chapter analysis status dots to the Reading chapter list, backed by workspace chapter-run state.
+- Fixed character extraction validation so cross-chapter alias evidence used by the canonical resolver is not persisted into the current chapter document with the wrong `chapter_num`.
+- Tightened canonical character merging so a new name is not auto-merged into an existing character only because it matches a stored alias; candidate coverage now adds missing names only and does not directly persist candidate aliases.
+- Split character identity into non-overlapping passes: identity/candidate now create character nodes only, while the new alias ownership pass is the single owner for same-sentence alias/coreference merges before cross-chapter resolution and receives a quoted-surface checklist without backend phrase matching.
+- Replaced Reading/Analysis workspace polling with project WebSocket events so analysis, extraction, and relationship updates can invalidate the UI when the backend persists new data.
+- Optimized ambiguous mention confirmation by sampling only a few representative occurrences per character surface before accepting all stable matches.
+- Tightened character identity and alias ownership prompts so grammatical references, pronouns, temporary references, and possessive surfaces are used only for internal reasoning and are not persisted as aliases.
+- Hydrated current-chapter character mention scanning with the persisted cross-chapter alias map so known names and aliases can be highlighted in later chapters without re-discovering them first.
+- Added cross-chapter alias-map highlighting in Reading so known character names and aliases can be highlighted even before the selected chapter has completed analysis.
+- Added backend and alias-map hygiene filters so unstable grammatical references and very short generic surfaces are not persisted or reused as character aliases without globally rejecting valid names that contain possessive particles.
+- Added a backend persist gate for character fields so appearance values require high confidence, target-marked evidence, and lexical grounding in the quoted evidence before they are written to DB.
+- Tightened alias, identity, and relationship persistence guards so unstable alias reference classes are rejected, substring-only character identities are removed before canonical resolution, alias ownership can redirect to a clearly closer character surface, and relationship candidates must declare a stable relationship kind with sufficient confidence before DB write.
+- Added one JSON repair retry for local LLM structured-output calls when the first response cannot be parsed as a JSON array.
+- Added local JSON string sanitation so raw control characters emitted inside local LLM JSON strings are escaped before parsing.
+- Added novel-level metadata fields for genre and description, source-language auto detection, manual metadata updates, and local-AI metadata filling for imported novels.
+- Updated app version metadata to `0.11.0`.
+- Updated storage schema version to `2026-04-29.foundation.v9`.
+
 ## [0.10.0] - 2026-04-27
 
 ### Changed

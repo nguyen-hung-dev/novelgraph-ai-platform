@@ -1,12 +1,16 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, time::Duration};
 
 use axum::{
-    extract::{Path, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, State,
+    },
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 pub mod local_runtime;
 use local_runtime::{LocalLlmRuntimeManager, LocalRuntimeError};
 use novelgraph_ai::{
@@ -14,28 +18,71 @@ use novelgraph_ai::{
     LocalLlmHealth, ModelListResponse,
 };
 use novelgraph_core::{
-    build_character_fields_prompt, build_character_identity_prompt,
-    build_character_occurrence_confirmation_prompt, build_draft_extraction_prompt,
-    build_import_preview, ActivateManagedLocalModelInput, AnalysisChapterRun, AnalysisChapterState,
-    AnalysisRunSnapshot, AnalysisRunStepInput, AppConfig, Chapter, CreateProjectInput,
-    CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult, DraftExtractionInput,
-    DraftExtractionPrompt, LocalLlmRuntimeSnapshot, NovelImportInput, ProjectWorkspaceSnapshot,
+    build_character_alias_ownership_prompt, build_character_candidate_prompt,
+    build_character_field_value_verification_prompt, build_character_fields_prompt,
+    build_character_identity_creation_review_prompt,
+    build_character_identity_merge_confirmation_prompt, build_character_identity_prompt,
+    build_character_occurrence_confirmation_prompt, build_character_relationship_candidate_prompt,
+    build_character_relationship_verification_prompt, build_draft_extraction_prompt,
+    build_import_preview, build_novel_metadata_suggestion_prompt, detect_basic_source_language,
+    ActivateManagedLocalModelInput, AnalysisChapterRun, AnalysisChapterState, AnalysisRunSnapshot,
+    AnalysisRunStepInput, AppConfig, ByokProviderConfigRecord, ByokProviderConfigView,
+    ByokProviderKeyHealth, ByokProviderPreset, Chapter, CheckByokProviderKeyInput,
+    CreateProjectInput, CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult,
+    DraftExtractionInput, DraftExtractionPrompt, LocalLlmRuntimeSnapshot, Novel, NovelImportInput,
+    NovelMetadataSuggestion, NovelMetadataUpdateInput, ProjectWorkspaceSnapshot,
+    SaveByokProviderConfigInput, SaveByokProviderConfigResult, StoryCharacterAliasView,
     StoryCharacterMention, StoryEvidenceSpan, StoryExtractionDocument, StoryExtractionFieldPayload,
     StoryExtractionFieldValuePayload, StoryExtractionRecordPayload, StoryExtractionRecordView,
     API_VERSION, APP_VERSION, CHARACTER_EXTRACTION_SCHEMA_VERSION, STORAGE_SCHEMA_VERSION,
 };
 use novelgraph_storage::{SqliteStore, StorageError};
+use ring::{
+    aead,
+    digest::{digest, SHA256},
+    rand::{SecureRandom, SystemRandom},
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
 const CHARACTER_EXTRACTION_CHUNK_TARGET_CHARS: usize = 2400;
 const CHARACTER_EXTRACTION_CHUNK_MIN_CHARS: usize = 900;
+const CHARACTER_CANDIDATE_MAX_TOKENS: u32 = 2048;
 const CHARACTER_IDENTITY_MAX_TOKENS: u32 = 512;
+const CHARACTER_ALIAS_OWNERSHIP_MAX_TOKENS: u32 = 2048;
+const CHARACTER_ALIAS_OWNERSHIP_MIN_CONFIDENCE: f64 = 0.78;
+const CHARACTER_ALIAS_OWNER_REDIRECT_MIN_SCORE: f64 = 0.55;
+const CHARACTER_IDENTITY_MERGE_CONFIRMATION_MAX_TOKENS: u32 = 512;
+const CHARACTER_IDENTITY_CREATION_REVIEW_MAX_TOKENS: u32 = 768;
+const CHARACTER_IDENTITY_CREATION_REVIEW_MIN_CONFIDENCE: f64 = 0.80;
+const CHARACTER_IDENTITY_REJECT_MIN_CONFIDENCE: f64 = 0.78;
 const CHARACTER_OCCURRENCE_CONFIRMATION_MAX_TOKENS: u32 = 512;
+const CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT: usize = 3;
+const CHARACTER_OCCURRENCE_CONFIRMATION_MIN_CONFIDENCE: f64 = 0.5;
 const CHARACTER_FIELDS_MAX_TOKENS: u32 = 32768;
+const CHARACTER_FIELD_VALUE_MIN_CONFIDENCE: f64 = 0.85;
+const CHARACTER_FIELD_VALUE_VERIFICATION_MAX_TOKENS: u32 = 512;
+const CHARACTER_FIELD_VALUE_VERIFICATION_MIN_CONFIDENCE: f64 = 0.85;
+const CHARACTER_RELATIONSHIP_CANDIDATE_MAX_TOKENS: u32 = 4096;
+const CHARACTER_RELATIONSHIP_MIN_CONFIDENCE: f64 = 0.78;
+const CHARACTER_RELATIONSHIP_VERIFICATION_MAX_TOKENS: u32 = 768;
+const CHARACTER_RELATIONSHIP_VERIFICATION_MIN_CONFIDENCE: f64 = 0.85;
+const CHARACTER_CANONICAL_AUTO_MERGE_SCORE: f64 = 0.98;
+const CHARACTER_CANONICAL_REVIEW_MIN_SCORE: f64 = 0.70;
+const CHARACTER_CANONICAL_REVIEW_SCORE_GAP: f64 = 0.05;
+const CHARACTER_CANONICAL_AI_MERGE_MIN_SCORE: f64 = 0.90;
+const CHARACTER_CANONICAL_MERGE_MIN_CONFIDENCE: f64 = 0.80;
+const CHARACTER_CANONICAL_IGNORE_MIN_CONFIDENCE: f64 = 0.95;
+const CHARACTER_CANONICAL_STORED_ALIAS_NAME_MATCH_SCORE: f64 = 0.82;
 const CHARACTER_OCCURRENCE_CONTEXT_CHARS: i64 = 150;
 const CHARACTER_FIELD_CONTEXT_MAX_ITEMS: usize = 12;
+const LOCAL_JSON_REPAIR_INPUT_MAX_CHARS: usize = 16_000;
+const NOVEL_METADATA_MAX_TOKENS: u32 = 1024;
+const GEMINI_OPENAI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+const GEMINI_DEFAULT_MODEL: &str = "gemini-2.5-flash";
+const SECRET_CIPHERTEXT_PREFIX: &str = "ngenc:v1";
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -43,6 +90,28 @@ pub struct AppState {
     pub store: SqliteStore,
     pub local_llm: LlamaCppClient,
     pub local_runtime: LocalLlmRuntimeManager,
+    realtime_tx: broadcast::Sender<ProjectRealtimeEvent>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProjectRealtimeEvent {
+    project_id: String,
+    event_type: String,
+    job_id: Option<String>,
+    chapter_id: Option<String>,
+    detail: String,
+}
+
+fn build_current_novel_analysis_context(novel: &Novel) -> String {
+    let title = novel.title.trim();
+    let author = novel.author.as_deref().unwrap_or("").trim();
+    let source_language = novel.source_language.as_deref().unwrap_or("").trim();
+    let genre = novel.genre.as_deref().unwrap_or("").trim();
+    let description = novel.description.as_deref().unwrap_or("").trim();
+
+    format!(
+        "Current novel metadata:\n- Title: {title}\n- Author: {author}\n- Source language: {source_language}\n- Genre: {genre}\n- Description: {description}\n\nGenre guidance:\n- Dùng Genre và Description để chọn phong cách nhãn, cách hiểu danh xưng, vai trò, quan hệ, năng lực và chi tiết nhân vật phù hợp với bối cảnh truyện hiện tại.\n- Không dùng metadata làm evidence. Mọi nhân vật, alias, field, mention và relationship được output vẫn phải có chứng cứ trực tiếp trong CHAPTER_TEXT hoặc TARGET_CONTEXTS của request hiện tại.\n- Không ép output theo một taxonomy cố định nếu thể loại hoặc văn cảnh yêu cầu cách gọi tự nhiên hơn.\n- Output label tiếng Việt có dấu, rõ nghĩa với người đọc truyện, nhưng field_key vẫn phải dùng ASCII snake_case khi schema yêu cầu.\n- Nếu Genre hoặc Description rỗng, mơ hồ, hoặc xung đột với chương hiện tại, ưu tiên chứng cứ trong chương."
+    )
 }
 
 pub fn build_router(
@@ -51,11 +120,13 @@ pub fn build_router(
     local_llm: LlamaCppClient,
     local_runtime: LocalLlmRuntimeManager,
 ) -> Router {
+    let (realtime_tx, _) = broadcast::channel(256);
     let state = AppState {
         config,
         store,
         local_llm,
         local_runtime,
+        realtime_tx,
     };
 
     Router::new()
@@ -88,6 +159,12 @@ pub fn build_router(
             "/api/local-llm/extraction/draft-chapter",
             post(local_llm_draft_chapter_extraction),
         )
+        .route("/api/byok/providers", get(list_byok_providers))
+        .route(
+            "/api/byok/config",
+            get(get_byok_config).post(save_byok_config),
+        )
+        .route("/api/byok/health-check", post(check_byok_key))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/archived", get(list_archived_projects))
         .route(
@@ -100,8 +177,16 @@ pub fn build_router(
             get(get_project_workspace),
         )
         .route(
+            "/api/projects/{project_id}/realtime",
+            get(project_realtime_ws),
+        )
+        .route(
             "/api/projects/{project_id}/novels/import/preview",
             post(preview_novel_import),
+        )
+        .route(
+            "/api/projects/{project_id}/novels/import/metadata-suggest",
+            post(suggest_novel_import_metadata),
         )
         .route(
             "/api/projects/{project_id}/novels/import/confirm",
@@ -110,6 +195,14 @@ pub fn build_router(
         .route(
             "/api/projects/{project_id}/novels/{novel_id}",
             get(get_novel),
+        )
+        .route(
+            "/api/projects/{project_id}/novels/{novel_id}/metadata",
+            post(update_novel_metadata),
+        )
+        .route(
+            "/api/projects/{project_id}/novels/{novel_id}/metadata/ai-fill",
+            post(ai_fill_novel_metadata),
         )
         .route(
             "/api/projects/{project_id}/novels/{novel_id}/chapters",
@@ -176,6 +269,396 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         api_version: API_VERSION,
         storage_schema_version: STORAGE_SCHEMA_VERSION,
     })
+}
+
+fn byok_provider_presets() -> Vec<ByokProviderPreset> {
+    vec![
+        ByokProviderPreset {
+            id: "gemini".to_string(),
+            name: "Google Gemini".to_string(),
+            base_url: GEMINI_OPENAI_BASE_URL.to_string(),
+            default_model: GEMINI_DEFAULT_MODEL.to_string(),
+            models: vec![
+                "gemini-2.5-flash".to_string(),
+                "gemini-2.5-pro".to_string(),
+                "gemini-2.0-flash".to_string(),
+            ],
+            api_format: "openai".to_string(),
+        },
+        ByokProviderPreset {
+            id: "openai-compatible".to_string(),
+            name: "OpenAI-compatible".to_string(),
+            base_url: "https://api.example.com/v1".to_string(),
+            default_model: "provider-model-id".to_string(),
+            models: Vec::new(),
+            api_format: "openai".to_string(),
+        },
+    ]
+}
+
+fn byok_provider_preset(provider: &str) -> Option<ByokProviderPreset> {
+    byok_provider_presets()
+        .into_iter()
+        .find(|preset| preset.id == provider)
+}
+
+fn byok_config_view(record: Option<&ByokProviderConfigRecord>) -> ByokProviderConfigView {
+    let default_preset = byok_provider_preset("gemini").expect("gemini preset exists");
+    let provider = record
+        .map(|record| record.provider.clone())
+        .unwrap_or(default_preset.id);
+    let preset = byok_provider_preset(&provider);
+
+    ByokProviderConfigView {
+        provider,
+        display_name: record
+            .map(|record| record.display_name.clone())
+            .or_else(|| preset.as_ref().map(|preset| preset.name.clone()))
+            .unwrap_or_else(|| "Google Gemini".to_string()),
+        base_url: record
+            .and_then(|record| record.base_url.clone())
+            .or_else(|| preset.as_ref().map(|preset| preset.base_url.clone()))
+            .unwrap_or_else(|| GEMINI_OPENAI_BASE_URL.to_string()),
+        model: record
+            .and_then(|record| record.model.clone())
+            .or_else(|| preset.as_ref().map(|preset| preset.default_model.clone()))
+            .unwrap_or_else(|| GEMINI_DEFAULT_MODEL.to_string()),
+        api_format: record
+            .map(|record| record.api_format.clone())
+            .or_else(|| preset.as_ref().map(|preset| preset.api_format.clone()))
+            .unwrap_or_else(|| "openai".to_string()),
+        has_api_key: record
+            .and_then(|record| record.encrypted_secret_ref.as_ref())
+            .is_some(),
+        api_key_masked: record
+            .and_then(|record| record.encrypted_secret_ref.as_ref())
+            .map(|_| "********".to_string())
+            .unwrap_or_default(),
+        key_fingerprint: record.and_then(|record| record.key_fingerprint.clone()),
+        session_only: record.map(|record| record.session_only).unwrap_or(false),
+        last_checked_at: record.and_then(|record| record.last_checked_at.clone()),
+        last_health_status: record.and_then(|record| record.last_health_status.clone()),
+        updated_at: record.map(|record| record.updated_at.clone()),
+    }
+}
+
+fn normalized_provider(provider: &str) -> Result<String, ApiError> {
+    let provider = require_request_text(provider, "provider")?;
+    if provider
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+    {
+        Ok(provider)
+    } else {
+        Err(ApiError::bad_request(
+            "provider contains unsupported characters",
+        ))
+    }
+}
+
+fn normalized_url(value: &str) -> Result<String, ApiError> {
+    let value = require_request_text(value, "base_url")?;
+    let value = value.trim_end_matches('/').to_string();
+    if value.starts_with("https://") || value.starts_with("http://") {
+        Ok(value)
+    } else {
+        Err(ApiError::bad_request(
+            "base_url must start with http:// or https://",
+        ))
+    }
+}
+
+fn require_request_text(value: &str, field: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ApiError::bad_request(format!("{field} is required")));
+    }
+
+    Ok(value.to_string())
+}
+
+fn optional_api_key(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| !value.chars().all(|ch| ch == '*'))
+        .map(ToOwned::to_owned)
+}
+
+fn secret_fingerprint(secret: &str) -> String {
+    let digest = digest(&SHA256, secret.as_bytes());
+    STANDARD_NO_PAD.encode(&digest.as_ref()[..9])
+}
+
+fn seal_secret(config: &AppConfig, secret: &str) -> Result<String, ApiError> {
+    let key_bytes = load_or_create_secret_key(config)?;
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, &key_bytes)
+        .map_err(|_| ApiError::internal("failed to prepare BYOK encryption key"))?;
+    let sealing_key = aead::LessSafeKey::new(unbound_key);
+    let rng = SystemRandom::new();
+    let mut nonce_bytes = [0_u8; 12];
+    rng.fill(&mut nonce_bytes)
+        .map_err(|_| ApiError::internal("failed to generate BYOK encryption nonce"))?;
+    let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
+    let mut ciphertext = secret.as_bytes().to_vec();
+
+    sealing_key
+        .seal_in_place_append_tag(nonce, aead::Aad::empty(), &mut ciphertext)
+        .map_err(|_| ApiError::internal("failed to encrypt BYOK key"))?;
+
+    Ok(format!(
+        "{SECRET_CIPHERTEXT_PREFIX}:{}:{}",
+        STANDARD_NO_PAD.encode(nonce_bytes),
+        STANDARD_NO_PAD.encode(ciphertext)
+    ))
+}
+
+fn open_secret(config: &AppConfig, value: &str) -> Result<String, ApiError> {
+    let mut parts = value.split(':');
+    let prefix = parts.next();
+    let version = parts.next();
+    let nonce = parts.next();
+    let ciphertext = parts.next();
+    if prefix != Some("ngenc") || version != Some("v1") || parts.next().is_some() {
+        return Err(ApiError::internal("stored BYOK key format is unsupported"));
+    }
+
+    let nonce = nonce.ok_or_else(|| ApiError::internal("stored BYOK key nonce is missing"))?;
+    let ciphertext =
+        ciphertext.ok_or_else(|| ApiError::internal("stored BYOK ciphertext is missing"))?;
+    let nonce_bytes = STANDARD_NO_PAD
+        .decode(nonce)
+        .map_err(|_| ApiError::internal("stored BYOK key nonce is invalid"))?;
+    let mut nonce_array = [0_u8; 12];
+    if nonce_bytes.len() != nonce_array.len() {
+        return Err(ApiError::internal(
+            "stored BYOK key nonce length is invalid",
+        ));
+    }
+    nonce_array.copy_from_slice(&nonce_bytes);
+
+    let mut ciphertext = STANDARD_NO_PAD
+        .decode(ciphertext)
+        .map_err(|_| ApiError::internal("stored BYOK ciphertext is invalid"))?;
+    let key_bytes = load_or_create_secret_key(config)?;
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, &key_bytes)
+        .map_err(|_| ApiError::internal("failed to prepare BYOK encryption key"))?;
+    let opening_key = aead::LessSafeKey::new(unbound_key);
+    let plaintext = opening_key
+        .open_in_place(
+            aead::Nonce::assume_unique_for_key(nonce_array),
+            aead::Aad::empty(),
+            &mut ciphertext,
+        )
+        .map_err(|_| ApiError::internal("failed to decrypt stored BYOK key"))?;
+
+    String::from_utf8(plaintext.to_vec())
+        .map_err(|_| ApiError::internal("stored BYOK key is not valid UTF-8"))
+}
+
+fn load_or_create_secret_key(config: &AppConfig) -> Result<[u8; 32], ApiError> {
+    if let Some(secret) = &config.secrets_encryption_key {
+        let digest = digest(&SHA256, secret.as_bytes());
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(digest.as_ref());
+        return Ok(key);
+    }
+
+    if config.secrets_key_path.exists() {
+        let encoded = fs::read_to_string(&config.secrets_key_path)
+            .map_err(|_| ApiError::internal("failed to read local BYOK encryption key"))?;
+        let decoded = STANDARD_NO_PAD
+            .decode(encoded.trim())
+            .map_err(|_| ApiError::internal("local BYOK encryption key is invalid"))?;
+        let mut key = [0_u8; 32];
+        if decoded.len() != key.len() {
+            return Err(ApiError::internal(
+                "local BYOK encryption key length is invalid",
+            ));
+        }
+        key.copy_from_slice(&decoded);
+        return Ok(key);
+    }
+
+    if let Some(parent) = config.secrets_key_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|_| ApiError::internal("failed to create local secrets directory"))?;
+    }
+
+    let rng = SystemRandom::new();
+    let mut key = [0_u8; 32];
+    rng.fill(&mut key)
+        .map_err(|_| ApiError::internal("failed to generate local BYOK encryption key"))?;
+    fs::write(&config.secrets_key_path, STANDARD_NO_PAD.encode(key))
+        .map_err(|_| ApiError::internal("failed to write local BYOK encryption key"))?;
+
+    Ok(key)
+}
+
+async fn probe_byok_provider_key(
+    provider: &str,
+    base_url: &str,
+    model: &str,
+    api_key: &str,
+) -> ByokProviderKeyHealth {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => {
+            return byok_health(
+                provider,
+                base_url,
+                model,
+                false,
+                None,
+                "HTTP client setup failed",
+            );
+        }
+    };
+    let url = if provider == "gemini" {
+        format!("{base_url}/models/{model}")
+    } else {
+        format!("{base_url}/models")
+    };
+
+    match client.get(url).bearer_auth(api_key).send().await {
+        Ok(response) if response.status().is_success() => byok_health(
+            provider,
+            base_url,
+            model,
+            true,
+            Some(response.status().as_u16()),
+            "Provider accepted the API key",
+        ),
+        Ok(response) if matches!(response.status().as_u16(), 401 | 403) => byok_health(
+            provider,
+            base_url,
+            model,
+            false,
+            Some(response.status().as_u16()),
+            "Provider rejected the API key",
+        ),
+        Ok(response) => byok_health(
+            provider,
+            base_url,
+            model,
+            false,
+            Some(response.status().as_u16()),
+            "Provider returned a non-success status",
+        ),
+        Err(_) => byok_health(
+            provider,
+            base_url,
+            model,
+            false,
+            None,
+            "Provider health request failed",
+        ),
+    }
+}
+
+fn byok_health(
+    provider: &str,
+    base_url: &str,
+    model: &str,
+    valid: bool,
+    status_code: Option<u16>,
+    message: &str,
+) -> ByokProviderKeyHealth {
+    ByokProviderKeyHealth {
+        provider: provider.to_string(),
+        base_url: base_url.to_string(),
+        model: model.to_string(),
+        valid,
+        status_code,
+        message: message.to_string(),
+        checked_at: unix_timestamp_label(),
+    }
+}
+
+fn unix_timestamp_label() -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+
+    format!("unix:{seconds}")
+}
+
+async fn project_realtime_ws(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    ws.on_upgrade(move |socket| project_realtime_socket(socket, state, project_id))
+}
+
+async fn project_realtime_socket(mut socket: WebSocket, state: AppState, project_id: String) {
+    let mut receiver = state.realtime_tx.subscribe();
+    let connected = ProjectRealtimeEvent {
+        project_id: project_id.clone(),
+        event_type: "connected".to_string(),
+        job_id: None,
+        chapter_id: None,
+        detail: "project realtime socket connected".to_string(),
+    };
+
+    if let Ok(payload) = serde_json::to_string(&connected) {
+        if socket.send(Message::Text(payload.into())).await.is_err() {
+            return;
+        }
+    }
+
+    loop {
+        match receiver.recv().await {
+            Ok(event) if event.project_id == project_id => {
+                let payload = match serde_json::to_string(&event) {
+                    Ok(payload) => payload,
+                    Err(_) => continue,
+                };
+
+                if socket.send(Message::Text(payload.into())).await.is_err() {
+                    break;
+                }
+            }
+            Ok(_) => {}
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                let lagged = ProjectRealtimeEvent {
+                    project_id: project_id.clone(),
+                    event_type: "resync_required".to_string(),
+                    job_id: None,
+                    chapter_id: None,
+                    detail: "client lagged behind realtime event stream".to_string(),
+                };
+                if let Ok(payload) = serde_json::to_string(&lagged) {
+                    if socket.send(Message::Text(payload.into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
+fn publish_project_event(
+    state: &AppState,
+    project_id: &str,
+    event_type: &str,
+    job_id: Option<&str>,
+    chapter_id: Option<&str>,
+    detail: &str,
+) {
+    let _ = state.realtime_tx.send(ProjectRealtimeEvent {
+        project_id: project_id.to_string(),
+        event_type: event_type.to_string(),
+        job_id: job_id.map(str::to_string),
+        chapter_id: chapter_id.map(str::to_string),
+        detail: detail.to_string(),
+    });
 }
 
 async fn local_llm_health(State(state): State<AppState>) -> Result<Json<LocalLlmHealth>, ApiError> {
@@ -281,6 +764,98 @@ async fn local_llm_draft_chapter_extraction(
     }))
 }
 
+async fn list_byok_providers() -> Json<Vec<ByokProviderPreset>> {
+    Json(byok_provider_presets())
+}
+
+async fn get_byok_config(
+    State(state): State<AppState>,
+) -> Result<Json<ByokProviderConfigView>, ApiError> {
+    let record = state.store.get_local_byok_provider_config().await?;
+    Ok(Json(byok_config_view(record.as_ref())))
+}
+
+async fn save_byok_config(
+    State(state): State<AppState>,
+    Json(input): Json<SaveByokProviderConfigInput>,
+) -> Result<Json<SaveByokProviderConfigResult>, ApiError> {
+    let provider = normalized_provider(&input.provider)?;
+    let preset = byok_provider_preset(&provider);
+    let display_name = preset
+        .as_ref()
+        .map(|provider| provider.name.as_str())
+        .unwrap_or(provider.as_str());
+    let api_format = preset
+        .as_ref()
+        .map(|provider| provider.api_format.as_str())
+        .unwrap_or("openai");
+    let base_url = normalized_url(&input.base_url)?;
+    let model = require_request_text(&input.model, "model")?;
+    let api_key = optional_api_key(input.api_key);
+    let (encrypted_secret_ref, key_fingerprint, saved_api_key) = if input.session_only {
+        (None, None, false)
+    } else if let Some(api_key) = api_key.as_deref() {
+        (
+            Some(seal_secret(&state.config, api_key)?),
+            Some(secret_fingerprint(api_key)),
+            true,
+        )
+    } else {
+        (None, None, false)
+    };
+
+    let record = state
+        .store
+        .save_local_byok_provider_config(
+            &provider,
+            display_name,
+            &base_url,
+            &model,
+            api_format,
+            encrypted_secret_ref.as_deref(),
+            key_fingerprint.as_deref(),
+            input.session_only,
+        )
+        .await?;
+
+    Ok(Json(SaveByokProviderConfigResult {
+        config: byok_config_view(Some(&record)),
+        saved_api_key,
+    }))
+}
+
+async fn check_byok_key(
+    State(state): State<AppState>,
+    Json(input): Json<CheckByokProviderKeyInput>,
+) -> Result<Json<ByokProviderKeyHealth>, ApiError> {
+    let provider = normalized_provider(&input.provider)?;
+    let base_url = normalized_url(&input.base_url)?;
+    let model = require_request_text(&input.model, "model")?;
+    let api_key = match optional_api_key(input.api_key) {
+        Some(api_key) => api_key,
+        None => {
+            let record = state
+                .store
+                .get_local_byok_provider_config_for_provider(&provider)
+                .await?;
+            let encrypted_secret_ref = record
+                .as_ref()
+                .and_then(|record| record.encrypted_secret_ref.as_deref())
+                .ok_or_else(|| ApiError::bad_request("API key is required"))?;
+            open_secret(&state.config, encrypted_secret_ref)?
+        }
+    };
+
+    let health = probe_byok_provider_key(&provider, &base_url, &model, &api_key).await;
+    let status = if health.valid { "valid" } else { "invalid" };
+    let _ = state
+        .store
+        .update_local_byok_provider_health(&provider, status)
+        .await;
+
+    Ok(Json(health))
+}
+
 async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<novelgraph_core::Project>>, ApiError> {
@@ -291,7 +866,16 @@ async fn create_project(
     State(state): State<AppState>,
     Json(input): Json<CreateProjectInput>,
 ) -> Result<Json<novelgraph_core::Project>, ApiError> {
-    Ok(Json(state.store.create_project(&input.name).await?))
+    let project = state.store.create_project(&input.name).await?;
+    publish_project_event(
+        &state,
+        &project.id,
+        "project_created",
+        None,
+        None,
+        "project created",
+    );
+    Ok(Json(project))
 }
 
 async fn list_archived_projects(
@@ -318,19 +902,35 @@ async fn delete_project(
     Path(project_id): Path<String>,
     Json(input): Json<DeleteProjectInput>,
 ) -> Result<Json<DeleteProjectResult>, ApiError> {
-    Ok(Json(
-        state
-            .store
-            .delete_project(&project_id, input.purge_data)
-            .await?,
-    ))
+    let result = state
+        .store
+        .delete_project(&project_id, input.purge_data)
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "project_deleted",
+        None,
+        None,
+        "project deleted",
+    );
+    Ok(Json(result))
 }
 
 async fn restore_project(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
 ) -> Result<Json<novelgraph_core::Project>, ApiError> {
-    Ok(Json(state.store.restore_project(&project_id).await?))
+    let project = state.store.restore_project(&project_id).await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "project_restored",
+        None,
+        None,
+        "project restored",
+    );
+    Ok(Json(project))
 }
 
 async fn get_project_workspace(
@@ -357,6 +957,44 @@ async fn get_project_workspace(
         }
         None => None,
     };
+    let latest_analysis_chapters = match &latest_analysis_job {
+        Some(job) => {
+            let runs = state
+                .store
+                .list_analysis_chapter_runs(&project_id, &job.id)
+                .await?;
+            let run_by_chapter = runs
+                .iter()
+                .map(|run| (run.chapter_id.as_str(), run))
+                .collect::<HashMap<_, _>>();
+
+            chapters
+                .iter()
+                .map(|chapter| {
+                    let run = run_by_chapter.get(chapter.id.as_str()).copied();
+
+                    AnalysisChapterState {
+                        chapter_id: chapter.id.clone(),
+                        chapter_num: chapter.chapter_num,
+                        title: chapter.title.clone(),
+                        status: run
+                            .map(|run| run.status.clone())
+                            .unwrap_or_else(|| "pending".to_string()),
+                        run_id: run.map(|run| run.id.clone()),
+                        attempt: run.map(|run| run.attempt),
+                        prompt_schema_version: run
+                            .and_then(|run| run.prompt_schema_version.clone()),
+                        error_code: run.and_then(|run| run.error_code.clone()),
+                        error_message: run.and_then(|run| run.error_message.clone()),
+                        started_at: run.and_then(|run| run.started_at.clone()),
+                        finished_at: run.and_then(|run| run.finished_at.clone()),
+                        updated_at: run.map(|run| run.updated_at.clone()),
+                    }
+                })
+                .collect()
+        }
+        None => Vec::new(),
+    };
     let latest_job_events = match &latest_analysis_job {
         Some(job) => state.store.list_job_events(&project_id, &job.id).await?,
         None => Vec::new(),
@@ -370,6 +1008,24 @@ async fn get_project_workspace(
         }
         None => Vec::new(),
     };
+    let relationship_records = match &latest_analysis_job {
+        Some(job) => {
+            state
+                .store
+                .list_story_extraction_records(&project_id, &job.id, "relationship")
+                .await?
+        }
+        None => Vec::new(),
+    };
+    let character_aliases = match &latest_analysis_job {
+        Some(job) => {
+            state
+                .store
+                .list_story_character_aliases(&project_id, &job.id)
+                .await?
+        }
+        None => Vec::new(),
+    };
 
     Ok(Json(ProjectWorkspaceSnapshot {
         project,
@@ -377,8 +1033,11 @@ async fn get_project_workspace(
         active_novel,
         chapters,
         latest_analysis_job,
+        latest_analysis_chapters,
         latest_job_events,
+        character_aliases,
         character_records,
+        relationship_records,
     }))
 }
 
@@ -399,12 +1058,123 @@ async fn preview_novel_import(
     Ok(Json(build_import_preview(&input)))
 }
 
+async fn suggest_novel_import_metadata(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    Json(input): Json<NovelImportInput>,
+) -> Result<Json<NovelMetadataSuggestion>, ApiError> {
+    state
+        .store
+        .get_project(&project_id)
+        .await?
+        .ok_or(ApiError::not_found("project"))?;
+    if input.text.trim().is_empty() {
+        return Err(ApiError::bad_request("novel text is required"));
+    }
+
+    Ok(Json(suggest_novel_metadata(&state, input).await?))
+}
+
 async fn confirm_novel_import(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
     Json(input): Json<NovelImportInput>,
 ) -> Result<Json<novelgraph_core::NovelImportResult>, ApiError> {
-    Ok(Json(state.store.import_novel(&project_id, input).await?))
+    let result = state.store.import_novel(&project_id, input).await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "novel_imported",
+        None,
+        None,
+        "novel imported",
+    );
+    Ok(Json(result))
+}
+
+async fn update_novel_metadata(
+    State(state): State<AppState>,
+    Path((project_id, novel_id)): Path<(String, String)>,
+    Json(mut input): Json<NovelMetadataUpdateInput>,
+) -> Result<Json<novelgraph_core::Novel>, ApiError> {
+    if input
+        .source_language
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty() || value == "auto")
+    {
+        let chapters = state.store.list_chapters(&project_id, &novel_id).await?;
+        let text = chapters
+            .iter()
+            .map(|chapter| chapter.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        input.source_language = detect_basic_source_language(&text);
+    }
+
+    let novel = state
+        .store
+        .update_novel_metadata(&project_id, &novel_id, input)
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "novel_metadata_updated",
+        None,
+        None,
+        "novel metadata updated",
+    );
+    Ok(Json(novel))
+}
+
+async fn ai_fill_novel_metadata(
+    State(state): State<AppState>,
+    Path((project_id, novel_id)): Path<(String, String)>,
+) -> Result<Json<novelgraph_core::Novel>, ApiError> {
+    let novel = state
+        .store
+        .get_novel(&project_id, &novel_id)
+        .await?
+        .ok_or(ApiError::not_found("novel"))?;
+    let chapters = state.store.list_chapters(&project_id, &novel_id).await?;
+    let text = chapters
+        .iter()
+        .map(|chapter| chapter.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.trim().is_empty() {
+        return Err(ApiError::bad_request("novel text is required"));
+    }
+
+    let suggestion = suggest_novel_metadata(
+        &state,
+        NovelImportInput {
+            title: novel.title.clone(),
+            author: novel.author.clone(),
+            source_language: novel.source_language.clone(),
+            genre: novel.genre.clone(),
+            description: novel.description.clone(),
+            text,
+        },
+    )
+    .await?;
+    let updated = state
+        .store
+        .update_novel_metadata(
+            &project_id,
+            &novel_id,
+            merge_novel_metadata_suggestion(&novel, suggestion),
+        )
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "novel_metadata_updated",
+        None,
+        None,
+        "novel metadata updated by AI",
+    );
+    Ok(Json(updated))
 }
 
 async fn get_novel(
@@ -418,6 +1188,80 @@ async fn get_novel(
         .ok_or(ApiError::not_found("novel"))?;
 
     Ok(Json(novel))
+}
+
+async fn suggest_novel_metadata(
+    state: &AppState,
+    mut input: NovelImportInput,
+) -> Result<NovelMetadataSuggestion, ApiError> {
+    if input
+        .source_language
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty() || value == "auto")
+    {
+        input.source_language = detect_basic_source_language(&input.text);
+    }
+
+    let prompt = build_novel_metadata_suggestion_prompt(&input);
+    let (suggestions, _) =
+        call_local_json_array::<NovelMetadataSuggestion>(state, &prompt, NOVEL_METADATA_MAX_TOKENS)
+            .await?;
+    let mut suggestion = suggestions
+        .into_iter()
+        .next()
+        .unwrap_or(NovelMetadataSuggestion {
+            title: None,
+            author: None,
+            source_language: None,
+            genre: None,
+            description: None,
+            confidence: Some(0.0),
+        });
+    if suggestion
+        .source_language
+        .as_deref()
+        .is_none_or(str::is_empty)
+    {
+        suggestion.source_language = input.source_language;
+    }
+
+    Ok(normalize_novel_metadata_suggestion(suggestion))
+}
+
+fn normalize_novel_metadata_suggestion(
+    mut suggestion: NovelMetadataSuggestion,
+) -> NovelMetadataSuggestion {
+    suggestion.title = optional_metadata_text(suggestion.title);
+    suggestion.author = optional_metadata_text(suggestion.author);
+    suggestion.source_language =
+        optional_metadata_text(suggestion.source_language).filter(|value| value != "auto");
+    suggestion.genre = optional_metadata_text(suggestion.genre);
+    suggestion.description = optional_metadata_text(suggestion.description);
+    suggestion
+}
+
+fn merge_novel_metadata_suggestion(
+    novel: &novelgraph_core::Novel,
+    suggestion: NovelMetadataSuggestion,
+) -> NovelMetadataUpdateInput {
+    NovelMetadataUpdateInput {
+        title: suggestion.title.or_else(|| Some(novel.title.clone())),
+        author: suggestion.author.or_else(|| novel.author.clone()),
+        source_language: suggestion
+            .source_language
+            .or_else(|| novel.source_language.clone()),
+        genre: suggestion.genre.or_else(|| novel.genre.clone()),
+        description: suggestion.description.or_else(|| novel.description.clone()),
+    }
+}
+
+fn optional_metadata_text(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 async fn list_chapters(
@@ -434,12 +1278,19 @@ async fn create_translation_job(
     Path(project_id): Path<String>,
     Json(input): Json<CreateTranslationJobInput>,
 ) -> Result<Json<novelgraph_core::TranslationJob>, ApiError> {
-    Ok(Json(
-        state
-            .store
-            .create_translation_job(&project_id, input)
-            .await?,
-    ))
+    let job = state
+        .store
+        .create_translation_job(&project_id, input)
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "translation_job_created",
+        Some(&job.id),
+        None,
+        "translation job created",
+    );
+    Ok(Json(job))
 }
 
 async fn get_analysis_job(
@@ -469,6 +1320,14 @@ async fn reset_analysis_run(
     Path((project_id, job_id)): Path<(String, String)>,
 ) -> Result<Json<AnalysisRunSnapshot>, ApiError> {
     state.store.reset_analysis_run(&project_id, &job_id).await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_reset",
+        Some(&job_id),
+        None,
+        "analysis run reset",
+    );
 
     Ok(Json(
         build_analysis_run_snapshot(&state.store, &project_id, &job_id, None).await?,
@@ -484,6 +1343,14 @@ async fn pause_analysis_run(
         .store
         .pause_analysis_job(&project_id, &job_id, reason, None, false)
         .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_paused",
+        Some(&job_id),
+        None,
+        "analysis run paused",
+    );
 
     Ok(Json(
         build_analysis_run_snapshot(&state.store, &project_id, &job_id, Some(reason.to_string()))
@@ -506,6 +1373,14 @@ async fn run_next_analysis_chapter(
         } else {
             state.store.reset_analysis_run(&project_id, &job_id).await?;
         }
+        publish_project_event(
+            &state,
+            &project_id,
+            "analysis_reset",
+            Some(&job_id),
+            None,
+            "analysis run reset before force run",
+        );
     }
 
     let current_job = state
@@ -523,6 +1398,14 @@ async fn run_next_analysis_chapter(
         .store
         .mark_analysis_job_running(&project_id, &job_id)
         .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_running",
+        Some(&job_id),
+        None,
+        "analysis job marked running",
+    );
     let novel_id = job
         .novel_id
         .as_deref()
@@ -548,6 +1431,14 @@ async fn run_next_analysis_chapter(
             chapter_range,
         )
         .await?;
+        publish_project_event(
+            &state,
+            &project_id,
+            "analysis_finished",
+            Some(&job_id),
+            None,
+            "analysis range or job finished",
+        );
         return Ok(Json(
             build_analysis_run_snapshot(&state.store, &project_id, &job_id, None).await?,
         ));
@@ -571,6 +1462,14 @@ async fn run_next_analysis_chapter(
                 true,
             )
             .await?;
+        publish_project_event(
+            &state,
+            &project_id,
+            "analysis_paused",
+            Some(&job_id),
+            None,
+            "local LLM unreachable",
+        );
 
         return Ok(Json(
             build_analysis_run_snapshot(&state.store, &project_id, &job_id, Some(reason)).await?,
@@ -584,6 +1483,14 @@ async fn run_next_analysis_chapter(
         .store
         .start_analysis_chapter_run(&project_id, &job_id, novel_id, &chapter)
         .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_chapter_started",
+        Some(&job_id),
+        Some(&chapter.id),
+        "analysis chapter started",
+    );
 
     let chunks = split_chapter_for_character_extraction(&chapter.content);
     let mut working_document = StoryExtractionDocument {
@@ -592,6 +1499,7 @@ async fn run_next_analysis_chapter(
         records: Vec::new(),
     };
     let mut chunk_outputs = Vec::with_capacity(chunks.len());
+    let novel_analysis_context = build_current_novel_analysis_context(&novel);
 
     for (index, chunk) in chunks.iter().enumerate() {
         if analysis_job_should_stop(&state.store, &project_id, &job_id).await? {
@@ -600,15 +1508,61 @@ async fn run_next_analysis_chapter(
             ));
         }
 
+        let base_prior_context = format!(
+            "{novel_analysis_context}\n\nĐây là đoạn nhỏ {}/{} của chương hiện tại. Mỗi pass chỉ xử lý dữ liệu có trong đoạn này. Offset mention phải tính từ CHAPTER_TEXT của đoạn này; backend sẽ tự quy đổi về toàn chương.",
+            index + 1,
+            chunks.len()
+        );
+        let db_records_before_identity = state
+            .store
+            .list_story_extraction_records(&project_id, &job_id, "character")
+            .await?;
+        let db_aliases_before_identity = state
+            .store
+            .list_story_character_aliases(&project_id, &job_id)
+            .await?;
+        let known_alias_identity_hints =
+            known_alias_map_identities_for_chunk(&chunk.text, &db_aliases_before_identity);
+        let known_alias_context =
+            serde_json::to_string(&known_alias_identity_hints).unwrap_or_else(|_| "[]".to_string());
+        let candidate_input = DraftExtractionInput {
+            chapter_num: chapter.chapter_num,
+            title: Some(chapter.title.clone()),
+            source_language: novel.source_language.clone(),
+            text: chunk.text.clone(),
+            prior_context: Some(format!(
+                "{base_prior_context}\n\nKnown character/alias surfaces already present in this chunk from previous chapters:\n{known_alias_context}\n\nNếu một known surface xuất hiện trong CHAPTER_TEXT, ưu tiên giữ node canonical đã biết thay vì tạo node mới cho cùng người."
+            )),
+        };
+        let candidate_prompt = build_character_candidate_prompt(&candidate_input);
+        let (candidate_identities, candidate_response) =
+            match call_local_json_array::<CharacterCandidate>(
+                &state,
+                &candidate_prompt,
+                CHARACTER_CANDIDATE_MAX_TOKENS,
+            )
+            .await
+            {
+                Ok((candidates, response)) => {
+                    (normalize_character_candidates(candidates), json!(response))
+                }
+                Err(error) => (
+                    Vec::new(),
+                    json!({
+                        "mode": "candidate_pass_failed_non_blocking",
+                        "error": error.message,
+                    }),
+                ),
+            };
+        let candidate_context =
+            serde_json::to_string(&candidate_identities).unwrap_or_else(|_| "[]".to_string());
         let chunk_input = DraftExtractionInput {
             chapter_num: chapter.chapter_num,
             title: Some(chapter.title.clone()),
             source_language: novel.source_language.clone(),
             text: chunk.text.clone(),
             prior_context: Some(format!(
-                "Đây là đoạn nhỏ {}/{} của chương hiện tại. Mỗi pass chỉ xử lý dữ liệu có trong đoạn này. Offset mention phải tính từ CHAPTER_TEXT của đoạn này; backend sẽ tự quy đổi về toàn chương.",
-                index + 1,
-                chunks.len()
+                "{base_prior_context}\n\nKnown character/alias surfaces already present in this chunk from previous chapters:\n{known_alias_context}\n\nCandidate coverage checklist từ pass quét nhanh trước identity:\n{candidate_context}\n\nIdentity pass phải dùng checklist này để tránh sót tên/alias có evidence trong đoạn, nhưng vẫn chỉ ghi nhân vật/alias khi CHAPTER_TEXT hiện tại hỗ trợ."
             )),
         };
 
@@ -640,16 +1594,60 @@ async fn run_next_analysis_chapter(
                     .await;
                 }
             };
-        let db_records_before_identity = state
-            .store
-            .list_story_extraction_records(&project_id, &job_id, "character")
-            .await?;
-        let chunk_identities = normalize_character_identities(chunk_identities);
-        let chunk_identities = resolve_character_identities_across_chapters(
-            chunk_identities,
-            &db_records_before_identity,
-            &working_document,
+        let mut chunk_identities = normalize_character_identities(chunk_identities);
+        merge_character_identity_hints(&mut chunk_identities, candidate_identities.clone());
+        merge_character_identity_hints(&mut chunk_identities, known_alias_identity_hints.clone());
+        filter_substring_only_identities(&mut chunk_identities, &chunk.text);
+        let identity_nodes_json =
+            serde_json::to_string(&chunk_identities).unwrap_or_else(|_| "[]".to_string());
+        let quoted_alias_candidates =
+            quoted_alias_candidate_context(&chunk_identities, &chunk.text);
+        let quoted_alias_context =
+            serde_json::to_string(&quoted_alias_candidates).unwrap_or_else(|_| "[]".to_string());
+        let alias_ownership_input = DraftExtractionInput {
+            chapter_num: chapter.chapter_num,
+            title: Some(chapter.title.clone()),
+            source_language: novel.source_language.clone(),
+            text: chunk.text.clone(),
+            prior_context: Some(format!(
+                "{base_prior_context}\n\nIdentity/Candidate pass đã tạo danh sách node nhân vật bên dưới. Alias Ownership pass là bước duy nhất được nhập surface alias/coreference vào owner trước khi resolver xuyên chương chạy.\n\nQuoted surface checklist do backend chỉ quét hình thức ngoặc kép, không tự kết luận owner:\n{quoted_alias_context}\n\nDùng checklist này để xét kỹ các surface trong ngoặc kép, nhưng chỉ trả alias ownership khi CHAPTER_TEXT chứng minh bằng ngữ pháp/ngữ nghĩa."
+            )),
+        };
+        let alias_ownership_prompt =
+            build_character_alias_ownership_prompt(&alias_ownership_input, &identity_nodes_json);
+        let (alias_ownerships, alias_ownership_response) =
+            match call_local_json_array::<CharacterAliasOwnership>(
+                &state,
+                &alias_ownership_prompt,
+                CHARACTER_ALIAS_OWNERSHIP_MAX_TOKENS,
+            )
+            .await
+            {
+                Ok((ownerships, response)) => (ownerships, json!(response)),
+                Err(error) => (
+                    Vec::new(),
+                    json!({
+                        "mode": "alias_ownership_pass_failed_non_blocking",
+                        "error": error.message,
+                    }),
+                ),
+            };
+        let alias_ownership_applications = apply_character_alias_ownerships(
+            &mut chunk_identities,
+            alias_ownerships,
+            chapter.chapter_num,
         );
+        filter_substring_only_identities(&mut chunk_identities, &chunk.text);
+        let (chunk_identities, merge_decision_outputs) =
+            resolve_character_identities_across_chapters(
+                &state,
+                &chunk_input,
+                chunk_identities,
+                &db_records_before_identity,
+                &db_aliases_before_identity,
+                &working_document,
+            )
+            .await;
         merge_character_identity_records(&mut working_document, &chunk_identities);
         normalize_character_field_keys(&mut working_document);
         state
@@ -663,12 +1661,23 @@ async fn run_next_analysis_chapter(
                 "character_identity_chunk",
             )
             .await?;
+        publish_project_event(
+            &state,
+            &project_id,
+            "story_extraction_updated",
+            Some(&job_id),
+            Some(&chapter.id),
+            "character identity chunk persisted",
+        );
 
         let db_records = state
             .store
             .list_story_extraction_records(&project_id, &job_id, "character")
             .await?;
-        let current_identities = working_identities_for_chunk(&working_document, &chunk_identities);
+        let current_identities = hydrate_identities_with_alias_map(
+            working_identities_for_chunk(&working_document, &chunk_identities),
+            &db_aliases_before_identity,
+        );
         let mut character_passes = Vec::new();
 
         for identity in current_identities {
@@ -722,8 +1731,17 @@ async fn run_next_analysis_chapter(
                     "character_mentions_chunk",
                 )
                 .await?;
+            publish_project_event(
+                &state,
+                &project_id,
+                "story_extraction_updated",
+                Some(&job_id),
+                Some(&chapter.id),
+                "character mentions chunk persisted",
+            );
 
             let field_contexts = build_character_field_contexts(&chunk.text, &identity);
+            let mut field_input_for_verification: Option<DraftExtractionInput> = None;
             let (fields, fields_response) = if field_contexts.is_empty() {
                 (
                     Vec::new(),
@@ -739,11 +1757,12 @@ async fn run_next_analysis_chapter(
                     source_language: chunk_input.source_language.clone(),
                     text: field_contexts.join("\n---\n"),
                     prior_context: Some(format!(
-                        "Đây là TARGET_CONTEXTS đã được backend chọn từ đoạn nhỏ {}/{} của chương hiện tại. Các occurrence của target được đánh dấu bằng [[...]]. Fields pass chỉ được dùng các context này, không dùng toàn chunk.",
+                        "{novel_analysis_context}\n\nĐây là TARGET_CONTEXTS đã được backend chọn từ đoạn nhỏ {}/{} của chương hiện tại. Các occurrence của target được đánh dấu bằng [[...]]. Fields pass chỉ được dùng các context này, không dùng toàn chunk.",
                         index + 1,
                         chunks.len()
                     )),
                 };
+                field_input_for_verification = Some(field_input.clone());
                 let fields_prompt = build_character_fields_prompt(&field_input, &character_json);
                 let (fields, response) = match call_local_json_array::<StoryExtractionFieldPayload>(
                     &state,
@@ -782,12 +1801,20 @@ async fn run_next_analysis_chapter(
                     }),
                 )
             };
-            let fields = normalize_character_field_payloads(
+            let normalized_fields = normalize_character_field_payloads(
                 fields,
                 &identity,
                 &db_records,
                 &working_document,
             );
+            let (fields, field_verification_report) = verify_character_field_payloads(
+                &state,
+                field_input_for_verification.as_ref(),
+                &identity,
+                &character_json,
+                normalized_fields,
+            )
+            .await;
             merge_character_identity_fields(&mut working_document, &identity, fields);
             normalize_character_field_keys(&mut working_document);
             state
@@ -801,12 +1828,21 @@ async fn run_next_analysis_chapter(
                     "character_fields_chunk",
                 )
                 .await?;
+            publish_project_event(
+                &state,
+                &project_id,
+                "story_extraction_updated",
+                Some(&job_id),
+                Some(&chapter.id),
+                "character fields chunk persisted",
+            );
 
             character_passes.push(json!({
                 "name": identity.name,
                 "aliases": identity.aliases,
                 "mentions_response": mentions_response,
                 "fields_response": fields_response,
+                "field_verification": field_verification_report,
             }));
         }
 
@@ -815,7 +1851,13 @@ async fn run_next_analysis_chapter(
             "chunk_count": chunks.len(),
             "start_char": chunk.start_char,
             "end_char": chunk.end_char,
+            "candidate_response": candidate_response,
+            "candidate_identity_hints": candidate_identities,
+            "known_alias_identity_hints": known_alias_identity_hints,
             "identity_response": identity_response,
+            "alias_ownership_response": alias_ownership_response,
+            "alias_ownership_applications": alias_ownership_applications,
+            "merge_decisions": merge_decision_outputs,
             "character_passes": character_passes,
         }));
 
@@ -825,6 +1867,31 @@ async fn run_next_analysis_chapter(
             ));
         }
     }
+
+    let relationship_outputs = match extract_character_relationships_for_chapter(
+        &state,
+        &project_id,
+        &job_id,
+        &chapter,
+        &novel,
+        &mut working_document,
+    )
+    .await
+    {
+        Ok(outputs) => outputs,
+        Err(error) => {
+            let reason = format!("character relationship pass failed: {}", error.message);
+            return fail_analysis_chapter_and_pause(
+                &state,
+                &project_id,
+                &job_id,
+                &chapter_run.chapter_id,
+                "character_relationship_pass_failed",
+                reason,
+            )
+            .await;
+        }
+    };
 
     let mut character_extraction = working_document;
     normalize_character_field_keys(&mut character_extraction);
@@ -857,6 +1924,14 @@ async fn run_next_analysis_chapter(
                 true,
             )
             .await?;
+        publish_project_event(
+            &state,
+            &project_id,
+            "analysis_paused",
+            Some(&job_id),
+            Some(&chapter.id),
+            "character extraction validation failed",
+        );
 
         return Ok(Json(
             build_analysis_run_snapshot(&state.store, &project_id, &job_id, Some(reason)).await?,
@@ -869,9 +1944,19 @@ async fn run_next_analysis_chapter(
         "chunk_target_chars": CHARACTER_EXTRACTION_CHUNK_TARGET_CHARS,
         "chunk_count": chunks.len(),
         "chunks": chunk_outputs,
+        "relationship_passes": relationship_outputs,
         "persisted": true,
-        "persisted_group_key": "character",
-        "character_record_count": character_extraction.records.len(),
+        "persisted_group_keys": ["character", "relationship"],
+        "character_record_count": character_extraction
+            .records
+            .iter()
+            .filter(|record| record.group_key == "character")
+            .count(),
+        "relationship_record_count": character_extraction
+            .records
+            .iter()
+            .filter(|record| record.group_key == "relationship")
+            .count(),
     })
     .to_string();
     state
@@ -885,6 +1970,14 @@ async fn run_next_analysis_chapter(
             &character_extraction,
         )
         .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_chapter_completed",
+        Some(&job_id),
+        Some(&chapter.id),
+        "analysis chapter completed",
+    );
 
     let runs = state
         .store
@@ -899,6 +1992,14 @@ async fn run_next_analysis_chapter(
         chapter_range,
     )
     .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_finished",
+        Some(&job_id),
+        None,
+        "analysis range or job progress updated",
+    );
 
     Ok(Json(
         build_analysis_run_snapshot(&state.store, &project_id, &job_id, None).await?,
@@ -909,12 +2010,19 @@ async fn cancel_analysis_job(
     State(state): State<AppState>,
     Path((project_id, job_id)): Path<(String, String)>,
 ) -> Result<Json<novelgraph_core::AnalysisJob>, ApiError> {
-    Ok(Json(
-        state
-            .store
-            .cancel_analysis_job(&project_id, &job_id)
-            .await?,
-    ))
+    let job = state
+        .store
+        .cancel_analysis_job(&project_id, &job_id)
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "analysis_cancelled",
+        Some(&job_id),
+        None,
+        "analysis job cancelled",
+    );
+    Ok(Json(job))
 }
 
 async fn get_translation_job(
@@ -934,12 +2042,19 @@ async fn cancel_translation_job(
     State(state): State<AppState>,
     Path((project_id, job_id)): Path<(String, String)>,
 ) -> Result<Json<novelgraph_core::TranslationJob>, ApiError> {
-    Ok(Json(
-        state
-            .store
-            .cancel_translation_job(&project_id, &job_id)
-            .await?,
-    ))
+    let job = state
+        .store
+        .cancel_translation_job(&project_id, &job_id)
+        .await?;
+    publish_project_event(
+        &state,
+        &project_id,
+        "translation_job_cancelled",
+        Some(&job_id),
+        None,
+        "translation job cancelled",
+    );
+    Ok(Json(job))
 }
 
 async fn list_job_events(
@@ -967,6 +2082,14 @@ async fn fail_analysis_chapter_and_pause(
         .store
         .pause_analysis_job(project_id, job_id, &reason, Some(error_code), true)
         .await?;
+    publish_project_event(
+        state,
+        project_id,
+        "analysis_paused",
+        Some(job_id),
+        Some(chapter_id),
+        error_code,
+    );
 
     Ok(Json(
         build_analysis_run_snapshot(&state.store, project_id, job_id, Some(reason)).await?,
@@ -1017,9 +2140,20 @@ where
             stream: false,
         })
         .await?;
-    let items = parse_json_array_response::<T>(&response)?;
-
-    Ok((items, response))
+    match parse_json_array_response::<T>(&response) {
+        Ok(items) => Ok((items, response)),
+        Err(parse_error) => {
+            let repair_response =
+                repair_local_json_array_response(state, prompt, &response, max_tokens).await?;
+            match parse_json_array_response::<T>(&repair_response) {
+                Ok(items) => Ok((items, repair_response)),
+                Err(retry_error) => Err(ApiError::bad_request(format!(
+                    "{}; repair retry failed: {}",
+                    parse_error.message, retry_error.message
+                ))),
+            }
+        }
+    }
 }
 
 fn parse_json_array_response<T>(response: &ChatCompletionResponse) -> Result<Vec<T>, ApiError>
@@ -1035,8 +2169,124 @@ where
     let json_text = extract_json_array(content)
         .ok_or_else(|| ApiError::bad_request("local LLM did not return a JSON array"))?;
 
-    serde_json::from_str::<Vec<T>>(json_text)
-        .map_err(|err| ApiError::bad_request(format!("local LLM JSON array parse failed: {err}")))
+    parse_json_array_text(json_text)
+}
+
+fn parse_json_array_text<T>(json_text: &str) -> Result<Vec<T>, ApiError>
+where
+    T: DeserializeOwned,
+{
+    match serde_json::from_str::<Vec<T>>(json_text) {
+        Ok(items) => Ok(items),
+        Err(initial_error) => {
+            let sanitized = escape_control_chars_inside_json_strings(json_text);
+            if sanitized == json_text {
+                return Err(ApiError::bad_request(format!(
+                    "local LLM JSON array parse failed: {initial_error}"
+                )));
+            }
+
+            serde_json::from_str::<Vec<T>>(&sanitized).map_err(|retry_error| {
+                ApiError::bad_request(format!(
+                    "local LLM JSON array parse failed: {initial_error}; sanitized parse failed: {retry_error}"
+                ))
+            })
+        }
+    }
+}
+
+fn escape_control_chars_inside_json_strings(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for ch in value.chars() {
+        if !in_string {
+            output.push(ch);
+            if ch == '"' {
+                in_string = true;
+            }
+            continue;
+        }
+
+        if escaped {
+            output.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => {
+                output.push(ch);
+                escaped = true;
+            }
+            '"' => {
+                output.push(ch);
+                in_string = false;
+            }
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            ch if ch.is_control() => {
+                output.push_str(&format!("\\u{:04x}", ch as u32));
+            }
+            _ => output.push(ch),
+        }
+    }
+
+    output
+}
+
+async fn repair_local_json_array_response(
+    state: &AppState,
+    prompt: &DraftExtractionPrompt,
+    invalid_response: &ChatCompletionResponse,
+    max_tokens: u32,
+) -> Result<ChatCompletionResponse, ApiError> {
+    let invalid_content = response_message_content(invalid_response);
+    let repair_input = truncate_chars(&invalid_content, LOCAL_JSON_REPAIR_INPUT_MAX_CHARS);
+
+    state
+        .local_llm
+        .chat_completion(ChatCompletionRequest {
+            model: None,
+            messages: vec![
+                ChatMessage {
+                    role: LlmRole::System,
+                    content: "You repair invalid JSON array output. Return valid JSON only. Do not add new facts. Do not explain.".to_string(),
+                },
+                ChatMessage {
+                    role: LlmRole::User,
+                    content: format!(
+                        "Schema version: {}\n\nThe previous response was intended to be a JSON array but failed parsing. Repair only syntax problems such as raw control characters inside strings, missing escaping, trailing text, or malformed commas. Preserve the same array items and fields as much as possible. If an item cannot be repaired safely, remove that item. Return a JSON array directly.\n\nInvalid response:\n<<<INVALID_JSON\n{}\nINVALID_JSON",
+                        prompt.schema_version,
+                        repair_input
+                    ),
+                },
+            ],
+            temperature: Some(0.0),
+            max_tokens: Some(max_tokens),
+            chat_template_kwargs: Some(json!({ "enable_thinking": false })),
+            stream: false,
+        })
+        .await
+        .map_err(ApiError::from)
+}
+
+fn response_message_content(response: &ChatCompletionResponse) -> String {
+    response
+        .choices
+        .first()
+        .map(|choice| choice.message.content.clone())
+        .unwrap_or_default()
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let mut output = value.chars().take(max_chars).collect::<String>();
+    if value.chars().count() > max_chars {
+        output.push_str("\n...[truncated]");
+    }
+    output
 }
 
 async fn build_analysis_run_snapshot(
@@ -1057,6 +2307,12 @@ async fn build_analysis_run_snapshot(
     let runs = store.list_analysis_chapter_runs(project_id, job_id).await?;
     let character_records = store
         .list_story_extraction_records(project_id, job_id, "character")
+        .await?;
+    let relationship_records = store
+        .list_story_extraction_records(project_id, job_id, "relationship")
+        .await?;
+    let character_aliases = store
+        .list_story_character_aliases(project_id, job_id)
         .await?;
     let run_by_chapter = runs
         .iter()
@@ -1125,7 +2381,9 @@ async fn build_analysis_run_snapshot(
         next_chapter_num,
         paused_reason,
         chapters: chapter_states,
+        character_aliases,
         character_records,
+        relationship_records,
     })
 }
 
@@ -1143,6 +2401,23 @@ struct CharacterIdentity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterCandidate {
+    #[serde(default)]
+    surface_text: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    role_label: String,
+    #[serde(default)]
+    aliases: Vec<CharacterAlias>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
+    confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(from = "CharacterAliasWire")]
 struct CharacterAlias {
     text: String,
@@ -1150,6 +2425,8 @@ struct CharacterAlias {
     alias_label: String,
     #[serde(default)]
     is_primary: bool,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1164,6 +2441,8 @@ enum CharacterAliasWire {
         alias_label: String,
         #[serde(default)]
         is_primary: bool,
+        #[serde(default)]
+        evidence: Vec<StoryEvidenceSpan>,
     },
 }
 
@@ -1175,20 +2454,38 @@ impl From<CharacterAliasWire> for CharacterAlias {
                 alias_type: "other_alias".to_string(),
                 alias_label: "Tên gọi khác".to_string(),
                 is_primary: false,
+                evidence: Vec::new(),
             },
             CharacterAliasWire::Object {
                 text,
                 alias_type,
                 alias_label,
                 is_primary,
+                evidence,
             } => CharacterAlias {
                 text,
                 alias_type,
                 alias_label,
                 is_primary,
+                evidence,
             },
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterAliasOwnership {
+    #[serde(default)]
+    owner_name: String,
+    #[serde(default)]
+    alias_text: String,
+    #[serde(default)]
+    alias_type: String,
+    #[serde(default)]
+    alias_label: String,
+    confidence: Option<f64>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1196,6 +2493,100 @@ struct CharacterOccurrenceConfirmation {
     is_character_mention: bool,
     confidence: Option<f64>,
     reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterFieldValueVerification {
+    #[serde(default)]
+    accepted: bool,
+    #[serde(default)]
+    semantic_class: String,
+    #[serde(default)]
+    owner_name: Option<String>,
+    confidence: Option<f64>,
+    reason: Option<String>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterRelationshipExtraction {
+    relationship_type: String,
+    a_to_b_label: String,
+    b_to_a_label: String,
+    confidence: Option<f64>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterRelationshipCandidate {
+    #[serde(default, alias = "person_a", alias = "character_a", alias = "source")]
+    source_name: String,
+    #[serde(default, alias = "person_b", alias = "character_b", alias = "target")]
+    target_name: String,
+    #[serde(default, alias = "kind")]
+    relationship_kind: String,
+    #[serde(default)]
+    relationship_type: String,
+    #[serde(
+        default,
+        alias = "a_to_b_label",
+        alias = "source_label",
+        alias = "relationship_label"
+    )]
+    source_to_target_label: String,
+    #[serde(default, alias = "b_to_a_label", alias = "target_label")]
+    target_to_source_label: String,
+    confidence: Option<f64>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterRelationshipVerification {
+    #[serde(default)]
+    accepted: bool,
+    #[serde(default)]
+    relationship_scope: String,
+    #[serde(default)]
+    owner_direction_ok: bool,
+    confidence: Option<f64>,
+    reason: Option<String>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CharacterIdentityMergeCandidate {
+    target_key: String,
+    display_name: String,
+    aliases: Vec<CharacterAlias>,
+    score: f64,
+    source: String,
+    chapter_num: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterIdentityMergeDecision {
+    #[serde(default)]
+    action: String,
+    confidence: Option<f64>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterIdentityCreationDecision {
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
+    target_key: Option<String>,
+    #[serde(default)]
+    target_name: Option<String>,
+    confidence: Option<f64>,
+    reason: Option<String>,
+    #[serde(default)]
+    evidence: Vec<StoryEvidenceSpan>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1372,50 +2763,636 @@ fn normalize_character_identities(identities: Vec<CharacterIdentity>) -> Vec<Cha
             continue;
         }
 
-        let mut aliases = Vec::new();
-        let mut alias_seen = std::collections::HashSet::new();
-        for alias in identity.aliases {
-            let text = clean_character_surface(&alias.text);
-            if text.is_empty() || normalized_text_key(&text) == normalized_text_key(&name) {
-                continue;
-            }
-            let alias_type = normalize_character_alias_type(&alias.alias_type);
-            if alias_type == "relationship_name" {
-                continue;
-            }
-            if alias_seen.insert(normalized_text_key(&text)) {
-                aliases.push(CharacterAlias {
-                    text,
-                    alias_type: alias_type.clone(),
-                    alias_label: normalize_character_alias_label(&alias_type, &alias.alias_label),
-                    is_primary: alias.is_primary,
-                });
-            }
-        }
-
         let key = normalized_text_key(&name);
         if seen.insert(key) {
-            normalized.push(CharacterIdentity { name, aliases });
+            normalized.push(CharacterIdentity {
+                name,
+                aliases: Vec::new(),
+            });
         }
     }
 
     normalized
 }
 
+fn normalize_character_candidates(candidates: Vec<CharacterCandidate>) -> Vec<CharacterIdentity> {
+    let mut identities = Vec::new();
+
+    for candidate in candidates {
+        if !character_candidate_kind_is_allowed(&candidate.kind) {
+            continue;
+        }
+
+        let name = clean_character_surface(
+            [
+                candidate.display_name.as_str(),
+                candidate.surface_text.as_str(),
+            ]
+            .into_iter()
+            .find(|value| !value.trim().is_empty())
+            .unwrap_or(""),
+        );
+        if name.is_empty() {
+            continue;
+        }
+
+        identities.push(CharacterIdentity {
+            name,
+            aliases: Vec::new(),
+        });
+    }
+
+    normalize_character_identities(identities)
+}
+
+fn character_candidate_kind_is_allowed(kind: &str) -> bool {
+    let key = normalize_ascii_snake_key(kind);
+    key.is_empty()
+        || matches!(
+            key.as_str(),
+            "person" | "character" | "nhan_vat" | "nhanvat"
+        )
+}
+
+fn merge_character_identity_hints(
+    identities: &mut Vec<CharacterIdentity>,
+    hints: Vec<CharacterIdentity>,
+) {
+    let mut existing_name_keys = identities
+        .iter()
+        .map(|identity| normalized_text_key(&identity.name))
+        .collect::<std::collections::HashSet<_>>();
+
+    for hint in hints {
+        let name = clean_character_surface(&hint.name);
+        let name_key = normalized_text_key(&name);
+        if name_key.is_empty() || !existing_name_keys.insert(name_key) {
+            continue;
+        }
+
+        identities.push(CharacterIdentity {
+            name,
+            aliases: Vec::new(),
+        });
+    }
+}
+
+fn filter_substring_only_identities(identities: &mut Vec<CharacterIdentity>, chunk_text: &str) {
+    if identities.len() < 2 {
+        return;
+    }
+
+    let identity_names = identities
+        .iter()
+        .map(|identity| clean_character_surface(&identity.name))
+        .collect::<Vec<_>>();
+    let mut remove_keys = std::collections::HashSet::new();
+
+    for (index, name) in identity_names.iter().enumerate() {
+        let key = normalized_text_key(name);
+        if key.is_empty() {
+            continue;
+        }
+
+        let occurrences = find_surface_occurrences(chunk_text, name, "identity", false);
+        if occurrences.is_empty() {
+            continue;
+        }
+
+        let mut containing_occurrences = Vec::new();
+        for (other_index, other_name) in identity_names.iter().enumerate() {
+            if index == other_index
+                || !character_surface_key_contains_other_surface(other_name, name)
+            {
+                continue;
+            }
+
+            containing_occurrences.extend(find_surface_occurrences(
+                chunk_text,
+                other_name,
+                "identity_container",
+                false,
+            ));
+        }
+
+        if containing_occurrences.is_empty() {
+            continue;
+        }
+
+        let only_inside_longer_surface = occurrences.iter().all(|occurrence| {
+            containing_occurrences.iter().any(|container| {
+                container.start_char <= occurrence.start_char
+                    && container.end_char >= occurrence.end_char
+                    && (container.end_char - container.start_char)
+                        > (occurrence.end_char - occurrence.start_char)
+            })
+        });
+
+        if only_inside_longer_surface {
+            remove_keys.insert(key);
+        }
+    }
+
+    if !remove_keys.is_empty() {
+        identities.retain(|identity| !remove_keys.contains(&normalized_text_key(&identity.name)));
+    }
+}
+
+fn character_surface_key_contains_other_surface(longer: &str, shorter: &str) -> bool {
+    let longer_key = normalized_folded_text_key(longer);
+    let shorter_key = normalized_folded_text_key(shorter);
+    !longer_key.is_empty()
+        && !shorter_key.is_empty()
+        && longer_key != shorter_key
+        && longer_key.contains(&shorter_key)
+}
+
+fn known_alias_map_identities_for_chunk(
+    chunk_text: &str,
+    db_aliases: &[StoryCharacterAliasView],
+) -> Vec<CharacterIdentity> {
+    let mut identities = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for candidate in character_alias_map_candidates(db_aliases) {
+        let mut surfaces = Vec::new();
+        surfaces.push(candidate.display_name.clone());
+        surfaces.extend(candidate.aliases.iter().map(|alias| alias.text.clone()));
+
+        let appears_in_chunk = surfaces.iter().any(|surface| {
+            !surface.trim().is_empty()
+                && !find_surface_occurrences(chunk_text, surface, "known_alias", false).is_empty()
+        });
+        if !appears_in_chunk || !seen.insert(candidate.target_key.clone()) {
+            continue;
+        }
+
+        identities.push(CharacterIdentity {
+            name: candidate.display_name,
+            aliases: candidate.aliases,
+        });
+    }
+
+    identities
+}
+
+fn apply_character_alias_ownerships(
+    identities: &mut Vec<CharacterIdentity>,
+    ownerships: Vec<CharacterAliasOwnership>,
+    chapter_num: i64,
+) -> Vec<serde_json::Value> {
+    let mut applications = Vec::new();
+    let mut remove_identity_keys = std::collections::HashSet::new();
+
+    for ownership in ownerships {
+        let confidence = ownership.confidence.unwrap_or(0.0);
+        if confidence < CHARACTER_ALIAS_OWNERSHIP_MIN_CONFIDENCE {
+            continue;
+        }
+
+        let owner_name = clean_character_surface(&ownership.owner_name);
+        let alias_text = clean_character_surface(&ownership.alias_text);
+        let owner_key = normalized_text_key(&owner_name);
+        let alias_key = normalized_text_key(&alias_text);
+        if owner_key.is_empty()
+            || alias_key.is_empty()
+            || owner_key == alias_key
+            || remove_identity_keys.contains(&owner_key)
+        {
+            continue;
+        }
+
+        let Some(mut owner_index) =
+            find_character_identity_index_by_surface(identities, &owner_name)
+        else {
+            continue;
+        };
+        if let Some(redirected_owner_index) =
+            better_alias_owner_by_surface(identities, owner_index, &alias_text)
+        {
+            owner_index = redirected_owner_index;
+        }
+        let target_name = identities[owner_index].name.clone();
+        let target_key = normalized_text_key(&target_name);
+        if remove_identity_keys.contains(&target_key) {
+            continue;
+        }
+
+        let alias_type = normalize_character_alias_type(&ownership.alias_type);
+        if !is_persistable_character_alias_type(&alias_type) {
+            continue;
+        }
+        let alias_label = normalize_character_alias_label(&alias_type, &ownership.alias_label);
+        let evidence = normalize_alias_ownership_evidence(ownership.evidence, chapter_num);
+        if !alias_ownership_can_be_applied(identities, owner_index, &alias_text, &evidence) {
+            applications.push(json!({
+                "mode": "alias_ownership",
+                "applied": false,
+                "reason": "alias owner is not grounded by evidence",
+                "owner_name": target_name,
+                "alias_text": alias_text,
+                "alias_type": alias_type,
+                "alias_label": alias_label,
+                "confidence": confidence,
+            }));
+            continue;
+        }
+
+        push_character_alias_if_valid(
+            &mut identities[owner_index].aliases,
+            CharacterAlias {
+                text: alias_text.clone(),
+                alias_type: alias_type.clone(),
+                alias_label: alias_label.clone(),
+                is_primary: confidence >= 0.95,
+                evidence,
+            },
+            &target_name,
+        );
+
+        if identities.iter().enumerate().any(|(index, identity)| {
+            index != owner_index && normalized_text_key(&identity.name) == alias_key
+        }) {
+            remove_identity_keys.insert(alias_key.clone());
+        }
+
+        applications.push(json!({
+            "mode": "alias_ownership",
+            "applied": true,
+            "owner_name": target_name,
+            "alias_text": alias_text,
+            "alias_type": alias_type,
+            "alias_label": alias_label,
+            "confidence": confidence,
+        }));
+    }
+
+    if !remove_identity_keys.is_empty() {
+        identities.retain(|identity| {
+            !remove_identity_keys.contains(&normalized_text_key(&identity.name))
+        });
+    }
+
+    applications
+}
+
+#[derive(Debug, Clone)]
+struct QuotedAliasSpan {
+    start_char: i64,
+    end_char: i64,
+    text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct QuotedAliasCandidateContext {
+    surface: String,
+    context: String,
+    nearby_identity_names: Vec<String>,
+    nearest_identity_before_quote: Option<String>,
+}
+
+fn quoted_alias_candidate_context(
+    identities: &[CharacterIdentity],
+    chunk_text: &str,
+) -> Vec<QuotedAliasCandidateContext> {
+    let mut candidates = Vec::new();
+
+    for span in quoted_alias_spans(chunk_text) {
+        let surface = clean_character_surface(&span.text);
+        if surface.is_empty() {
+            continue;
+        }
+
+        let sentence_start = sentence_start_before(chunk_text, span.start_char);
+        let sentence_end = sentence_end_after(chunk_text, span.end_char);
+        let context = slice_text_by_char_range(chunk_text, sentence_start, sentence_end);
+        let nearby_identity_names = identity_names_in_text(identities, &context);
+        if nearby_identity_names.is_empty() {
+            continue;
+        }
+
+        let before_quote = slice_text_by_char_range(chunk_text, sentence_start, span.start_char);
+        let nearest_identity_before_quote =
+            nearest_identity_before_alias_quote(identities, &before_quote)
+                .map(|identity_index| identities[identity_index].name.clone());
+
+        candidates.push(QuotedAliasCandidateContext {
+            surface,
+            context,
+            nearby_identity_names,
+            nearest_identity_before_quote,
+        });
+    }
+
+    candidates
+}
+
+fn identity_names_in_text(identities: &[CharacterIdentity], text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for identity in identities {
+        let identity_key = normalized_text_key(&identity.name);
+        if identity_key.is_empty() || seen.contains(&identity_key) {
+            continue;
+        }
+
+        let found = character_identity_surfaces(identity)
+            .into_iter()
+            .any(|(surface, _)| {
+                !find_surface_occurrences(text, &surface, "alias_owner_candidate", false).is_empty()
+            });
+        if found {
+            seen.insert(identity_key);
+            names.push(identity.name.clone());
+        }
+    }
+
+    names
+}
+
+fn quoted_alias_spans(text: &str) -> Vec<QuotedAliasSpan> {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        if !is_quote_char(chars[index]) {
+            index += 1;
+            continue;
+        }
+
+        let quote_start = index;
+        let mut quote_end = quote_start + 1;
+        while quote_end < chars.len() && !is_quote_char(chars[quote_end]) {
+            quote_end += 1;
+        }
+
+        if quote_end >= chars.len() {
+            break;
+        }
+
+        let quoted = chars[(quote_start + 1)..quote_end]
+            .iter()
+            .collect::<String>();
+        let cleaned = clean_character_surface(&quoted);
+        if is_stable_character_alias_surface(&quoted, &cleaned) {
+            spans.push(QuotedAliasSpan {
+                start_char: quote_start as i64,
+                end_char: (quote_end + 1) as i64,
+                text: quoted,
+            });
+        }
+
+        index = quote_end + 1;
+    }
+
+    spans
+}
+
+fn nearest_identity_before_alias_quote(
+    identities: &[CharacterIdentity],
+    before_quote: &str,
+) -> Option<usize> {
+    let mut best: Option<(usize, i64)> = None;
+
+    for (identity_index, identity) in identities.iter().enumerate() {
+        for (surface, _) in character_identity_surfaces(identity) {
+            for occurrence in
+                find_surface_occurrences(before_quote, &surface, "alias_owner_candidate", false)
+            {
+                match best {
+                    Some((_, best_end)) if occurrence.end_char <= best_end => {}
+                    _ => best = Some((identity_index, occurrence.end_char)),
+                }
+            }
+        }
+    }
+
+    best.map(|(identity_index, _)| identity_index)
+}
+
+fn sentence_start_before(text: &str, char_index: i64) -> i64 {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = char_index.max(0).min(chars.len() as i64) as usize;
+    while index > 0 {
+        let previous = chars[index - 1];
+        if is_sentence_boundary_for_quote_context(previous) {
+            break;
+        }
+        index -= 1;
+    }
+
+    index as i64
+}
+
+fn sentence_end_after(text: &str, char_index: i64) -> i64 {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = char_index.max(0).min(chars.len() as i64) as usize;
+    while index < chars.len() {
+        let current = chars[index];
+        index += 1;
+        if is_sentence_boundary_for_quote_context(current) {
+            break;
+        }
+    }
+
+    index as i64
+}
+
+fn is_sentence_boundary_for_quote_context(ch: char) -> bool {
+    matches!(ch, '.' | '!' | '?' | '。' | '！' | '？' | '\n' | '\r')
+}
+
+fn slice_text_by_char_range(text: &str, start_char: i64, end_char: i64) -> String {
+    let start = start_char.max(0) as usize;
+    let end = end_char.max(start_char).max(0) as usize;
+    text.chars()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect()
+}
+
+fn normalize_alias_ownership_evidence(
+    evidence: Vec<StoryEvidenceSpan>,
+    chapter_num: i64,
+) -> Vec<StoryEvidenceSpan> {
+    evidence
+        .into_iter()
+        .map(|span| StoryEvidenceSpan {
+            chapter_num,
+            start_char: None,
+            end_char: None,
+            quote: span.quote,
+            reason: span.reason,
+        })
+        .collect()
+}
+
+fn alias_ownership_can_be_applied(
+    identities: &[CharacterIdentity],
+    owner_index: usize,
+    alias_text: &str,
+    evidence: &[StoryEvidenceSpan],
+) -> bool {
+    if evidence.is_empty() || !alias_evidence_mentions_surface(evidence, alias_text) {
+        return false;
+    }
+
+    let owner = &identities[owner_index];
+    let owner_surfaces = character_identity_surfaces(owner)
+        .into_iter()
+        .map(|(surface, _)| surface)
+        .collect::<Vec<_>>();
+    if evidence_mentions_any_surface(evidence, &owner_surfaces) {
+        return true;
+    }
+
+    if owner_surfaces
+        .iter()
+        .any(|surface| character_surfaces_share_distinctive_token(alias_text, surface))
+    {
+        return true;
+    }
+
+    false
+}
+
+fn alias_evidence_mentions_surface(evidence: &[StoryEvidenceSpan], surface: &str) -> bool {
+    let surface_key = normalized_folded_text_key(surface);
+    if surface_key.is_empty() {
+        return false;
+    }
+
+    evidence.iter().any(|span| {
+        span.quote
+            .as_deref()
+            .is_some_and(|quote| normalized_folded_text_key(quote).contains(&surface_key))
+    })
+}
+
+fn evidence_mentions_any_surface(evidence: &[StoryEvidenceSpan], surfaces: &[String]) -> bool {
+    surfaces
+        .iter()
+        .any(|surface| alias_evidence_mentions_surface(evidence, surface))
+}
+
+fn character_surfaces_share_distinctive_token(left: &str, right: &str) -> bool {
+    let left_tokens = distinctive_surface_tokens(left);
+    if left_tokens.is_empty() {
+        return false;
+    }
+    let right_tokens = distinctive_surface_tokens(right);
+    left_tokens.iter().any(|token| right_tokens.contains(token))
+}
+
+fn distinctive_surface_tokens(value: &str) -> std::collections::HashSet<String> {
+    normalized_folded_text_key(value)
+        .split('_')
+        .filter(|token| token.chars().count() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
+fn find_character_identity_index_by_surface(
+    identities: &[CharacterIdentity],
+    surface: &str,
+) -> Option<usize> {
+    let key = normalized_text_key(surface);
+    if key.is_empty() {
+        return None;
+    }
+
+    identities.iter().position(|identity| {
+        normalized_text_key(&identity.name) == key
+            || identity
+                .aliases
+                .iter()
+                .any(|alias| normalized_text_key(&alias.text) == key)
+    })
+}
+
+fn better_alias_owner_by_surface(
+    identities: &[CharacterIdentity],
+    owner_index: usize,
+    alias_text: &str,
+) -> Option<usize> {
+    let alias_key = normalized_text_key(alias_text);
+    if alias_key.is_empty() {
+        return None;
+    }
+
+    if identities.iter().enumerate().any(|(index, identity)| {
+        index != owner_index && normalized_text_key(&identity.name) == alias_key
+    }) {
+        return None;
+    }
+
+    let alias_identity = CharacterIdentity {
+        name: alias_text.to_string(),
+        aliases: Vec::new(),
+    };
+    let owner_score = character_identity_candidate_score(&alias_identity, &identities[owner_index]);
+    let mut best: Option<(usize, f64)> = None;
+
+    for (index, identity) in identities.iter().enumerate() {
+        if index == owner_index {
+            continue;
+        }
+
+        let score = character_identity_candidate_score(&alias_identity, identity);
+        if score < CHARACTER_ALIAS_OWNER_REDIRECT_MIN_SCORE {
+            continue;
+        }
+
+        match best {
+            Some((_, best_score)) if score > best_score => best = Some((index, score)),
+            None => best = Some((index, score)),
+            _ => {}
+        }
+    }
+
+    let (best_index, best_score) = best?;
+    if best_score > owner_score + CHARACTER_CANONICAL_REVIEW_SCORE_GAP {
+        Some(best_index)
+    } else {
+        None
+    }
+}
+
 fn normalize_character_alias_type(value: &str) -> String {
     match normalize_ascii_snake_key(value).as_str() {
-        "nickname" | "biet_danh" => "nickname".to_string(),
+        "nickname" | "biet_danh" | "stable_nickname" => "nickname".to_string(),
         "title_or_role" | "title" | "role" | "danh_xung" | "chuc_vu" | "vai_tro" => {
             "title_or_role".to_string()
         }
         "relationship_name" | "relationship" | "relation" | "family_relation" => {
             "relationship_name".to_string()
         }
-        "other_alias" | "alias" | "aliases" | "other_name" | "other_names" => {
+        "pronoun"
+        | "personal_pronoun"
+        | "dai_tu"
+        | "dai_tu_nhan_xung"
+        | "temporary_reference"
+        | "grammatical_reference"
+        | "descriptive_phrase"
+        | "event_phrase"
+        | "group_reference"
+        | "possessive_phrase"
+        | "generic_reference"
+        | "unstable_reference" => "unstable_reference".to_string(),
+        "stable_alias" | "other_alias" | "alias" | "aliases" | "other_name" | "other_names" => {
             "other_alias".to_string()
         }
         _ => "other_alias".to_string(),
     }
+}
+
+fn is_persistable_character_alias_type(alias_type: &str) -> bool {
+    matches!(
+        normalize_character_alias_type(alias_type).as_str(),
+        "nickname" | "other_alias"
+    )
 }
 
 fn normalize_character_alias_label(alias_type: &str, label: &str) -> String {
@@ -1427,7 +3404,572 @@ fn normalize_character_alias_label(alias_type: &str, label: &str) -> String {
     match normalize_character_alias_type(alias_type).as_str() {
         "nickname" => "Biệt danh".to_string(),
         "title_or_role" => "Danh xưng".to_string(),
+        "unstable_reference" => "Tham chiếu tạm thời".to_string(),
         _ => "Tên gọi khác".to_string(),
+    }
+}
+
+async fn extract_character_relationships_for_chapter(
+    state: &AppState,
+    project_id: &str,
+    job_id: &str,
+    chapter: &Chapter,
+    novel: &Novel,
+    document: &mut StoryExtractionDocument,
+) -> Result<Vec<serde_json::Value>, ApiError> {
+    let identities = character_identities_for_relationships(document);
+    let mut outputs = Vec::new();
+
+    if identities.len() < 2 {
+        return Ok(outputs);
+    }
+
+    let identity_nodes_json =
+        serde_json::to_string(&identities).unwrap_or_else(|_| "[]".to_string());
+    let novel_analysis_context = build_current_novel_analysis_context(novel);
+    let relationship_input = DraftExtractionInput {
+        chapter_num: chapter.chapter_num,
+        title: Some(chapter.title.clone()),
+        source_language: novel.source_language.clone(),
+        text: chapter.content.clone(),
+        prior_context: Some(format!(
+            "{novel_analysis_context}\n\nĐây là relationship candidate pass sau khi character identity, aliases, mentions và fields của chương hiện tại đã hoàn tất. Chỉ trả quan hệ có evidence trong chương hiện tại; aliases chỉ dùng để resolve về canonical character, không phải node riêng."
+        )),
+    };
+    let prompt =
+        build_character_relationship_candidate_prompt(&relationship_input, &identity_nodes_json);
+    let (candidates, response) = match call_local_json_array::<CharacterRelationshipCandidate>(
+        state,
+        &prompt,
+        CHARACTER_RELATIONSHIP_CANDIDATE_MAX_TOKENS,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            outputs.push(json!({
+                "mode": "relationship_candidate_pass_failed_non_blocking",
+                "error": error.message,
+            }));
+            return Ok(outputs);
+        }
+    };
+
+    let candidate_count = candidates.len();
+    let (relationships_by_pair, resolution_warnings) =
+        resolve_character_relationship_candidates(candidates, &identities, chapter);
+    let mut persisted_record_count = 0usize;
+    let mut persisted_relationship_count = 0usize;
+    let mut relationship_verification_reports = Vec::new();
+
+    for ((left_index, right_index), relationships) in relationships_by_pair {
+        let character_a = &identities[left_index];
+        let character_b = &identities[right_index];
+        let relationships = normalize_character_relationships(relationships);
+        if relationships.is_empty() {
+            continue;
+        }
+        let (relationships, reports) = verify_character_relationships(
+            state,
+            &relationship_input,
+            character_a,
+            character_b,
+            relationships,
+        )
+        .await;
+        relationship_verification_reports.extend(reports);
+        if relationships.is_empty() {
+            continue;
+        }
+
+        persisted_relationship_count += relationships.len();
+        if let Some(record) = relationship_pair_to_record(character_a, character_b, relationships) {
+            document.records.push(record);
+            persisted_record_count += 1;
+        }
+    }
+
+    if persisted_record_count > 0 {
+        state
+            .store
+            .replace_story_extraction_records_for_chapter(
+                project_id,
+                job_id,
+                &chapter.id,
+                CHARACTER_EXTRACTION_SCHEMA_VERSION,
+                document,
+                "character_relationship_candidate_pass",
+            )
+            .await?;
+        publish_project_event(
+            state,
+            project_id,
+            "story_extraction_updated",
+            Some(job_id),
+            Some(&chapter.id),
+            "character relationship candidates persisted",
+        );
+    }
+
+    outputs.push(json!({
+        "mode": "relationship_candidate_pass",
+        "candidate_count": candidate_count,
+        "persisted_record_count": persisted_record_count,
+        "persisted_relationship_count": persisted_relationship_count,
+        "resolution_warnings": resolution_warnings,
+        "verification": relationship_verification_reports,
+        "response": response,
+    }));
+
+    Ok(outputs)
+}
+
+fn resolve_character_relationship_candidates(
+    candidates: Vec<CharacterRelationshipCandidate>,
+    identities: &[CharacterIdentity],
+    chapter: &Chapter,
+) -> (
+    HashMap<(usize, usize), Vec<CharacterRelationshipExtraction>>,
+    Vec<serde_json::Value>,
+) {
+    let mut relationships_by_pair =
+        HashMap::<(usize, usize), Vec<CharacterRelationshipExtraction>>::new();
+    let mut warnings = Vec::new();
+
+    for candidate in candidates {
+        let source_name = clean_character_surface(&candidate.source_name);
+        let target_name = clean_character_surface(&candidate.target_name);
+        let relationship_kind = normalize_relationship_candidate_kind(&candidate.relationship_kind);
+        if relationship_kind != "stable_relation" {
+            warnings.push(json!({
+                "code": "relationship_candidate_not_stable",
+                "source_name": source_name,
+                "target_name": target_name,
+                "relationship_kind": relationship_kind,
+            }));
+            continue;
+        }
+
+        let confidence = candidate.confidence.unwrap_or(0.0);
+        if confidence < CHARACTER_RELATIONSHIP_MIN_CONFIDENCE {
+            warnings.push(json!({
+                "code": "relationship_candidate_low_confidence",
+                "source_name": source_name,
+                "target_name": target_name,
+                "confidence": confidence,
+            }));
+            continue;
+        }
+
+        let Some(source_index) = resolve_relationship_identity_index(identities, &source_name)
+        else {
+            warnings.push(json!({
+                "code": "relationship_source_not_resolved",
+                "source_name": source_name,
+                "target_name": target_name,
+            }));
+            continue;
+        };
+        let Some(target_index) = resolve_relationship_identity_index(identities, &target_name)
+        else {
+            warnings.push(json!({
+                "code": "relationship_target_not_resolved",
+                "source_name": source_name,
+                "target_name": target_name,
+            }));
+            continue;
+        };
+
+        if source_index == target_index {
+            warnings.push(json!({
+                "code": "relationship_self_reference_skipped",
+                "source_name": source_name,
+                "target_name": target_name,
+            }));
+            continue;
+        }
+
+        if !relationship_candidate_has_grounded_evidence(&candidate, chapter) {
+            warnings.push(json!({
+                "code": "relationship_candidate_not_grounded",
+                "source_name": source_name,
+                "target_name": target_name,
+            }));
+            continue;
+        }
+
+        let (left_index, right_index, relationship) = relationship_candidate_to_pair_extraction(
+            candidate,
+            source_index,
+            target_index,
+            chapter.chapter_num,
+        );
+        relationships_by_pair
+            .entry((left_index, right_index))
+            .or_default()
+            .push(relationship);
+    }
+
+    (relationships_by_pair, warnings)
+}
+
+fn normalize_relationship_candidate_kind(value: &str) -> &'static str {
+    match normalize_ascii_snake_key(value).as_str() {
+        "stable_relation" | "relationship" | "relation" | "direct_relation" => "stable_relation",
+        "temporary_interaction" | "interaction" | "scene_interaction" => "temporary_interaction",
+        "event" | "action" | "scene_event" => "event",
+        _ => "uncertain",
+    }
+}
+
+fn resolve_relationship_identity_index(
+    identities: &[CharacterIdentity],
+    surface: &str,
+) -> Option<usize> {
+    let key = normalized_text_key(surface);
+    if key.is_empty() {
+        return None;
+    }
+
+    let mut matched_index = None;
+    for (index, identity) in identities.iter().enumerate() {
+        let matches_identity = character_identity_surfaces(identity)
+            .into_iter()
+            .any(|(candidate_surface, _)| normalized_text_key(&candidate_surface) == key);
+        if !matches_identity {
+            continue;
+        }
+
+        if matched_index.is_some() {
+            return None;
+        }
+
+        matched_index = Some(index);
+    }
+
+    matched_index
+}
+
+fn relationship_candidate_has_grounded_evidence(
+    candidate: &CharacterRelationshipCandidate,
+    chapter: &Chapter,
+) -> bool {
+    candidate.evidence.iter().any(|evidence| {
+        evidence
+            .quote
+            .as_deref()
+            .is_some_and(|quote| chapter_text_contains_evidence_quote(&chapter.content, quote))
+    })
+}
+
+fn chapter_text_contains_evidence_quote(chapter_text: &str, quote: &str) -> bool {
+    let quote = quote.trim();
+    if quote.is_empty() {
+        return false;
+    }
+
+    if chapter_text.contains(quote) {
+        return true;
+    }
+
+    let normalized_chapter = collapse_evidence_whitespace(chapter_text);
+    let normalized_quote = collapse_evidence_whitespace(quote);
+    !normalized_quote.is_empty() && normalized_chapter.contains(&normalized_quote)
+}
+
+fn collapse_evidence_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn relationship_candidate_to_pair_extraction(
+    candidate: CharacterRelationshipCandidate,
+    source_index: usize,
+    target_index: usize,
+    chapter_num: i64,
+) -> (usize, usize, CharacterRelationshipExtraction) {
+    let relationship_type = if candidate.relationship_type.trim().is_empty() {
+        normalize_ascii_snake_key(&candidate.source_to_target_label)
+    } else {
+        normalize_ascii_snake_key(&candidate.relationship_type)
+    };
+    let source_to_target_label = candidate.source_to_target_label.trim().to_string();
+    let target_to_source_label = candidate.target_to_source_label.trim().to_string();
+    let target_to_source_label = if target_to_source_label.is_empty() {
+        source_to_target_label.clone()
+    } else {
+        target_to_source_label
+    };
+    let evidence = normalize_relationship_candidate_evidence(candidate.evidence, chapter_num);
+
+    if source_index < target_index {
+        (
+            source_index,
+            target_index,
+            CharacterRelationshipExtraction {
+                relationship_type,
+                a_to_b_label: source_to_target_label,
+                b_to_a_label: target_to_source_label,
+                confidence: candidate.confidence,
+                evidence,
+            },
+        )
+    } else {
+        (
+            target_index,
+            source_index,
+            CharacterRelationshipExtraction {
+                relationship_type,
+                a_to_b_label: target_to_source_label,
+                b_to_a_label: source_to_target_label,
+                confidence: candidate.confidence,
+                evidence,
+            },
+        )
+    }
+}
+
+fn normalize_relationship_candidate_evidence(
+    evidence: Vec<StoryEvidenceSpan>,
+    chapter_num: i64,
+) -> Vec<StoryEvidenceSpan> {
+    evidence
+        .into_iter()
+        .filter_map(|mut evidence| {
+            let quote = evidence.quote.as_deref()?.trim();
+            if quote.is_empty() {
+                return None;
+            }
+
+            evidence.chapter_num = chapter_num;
+            evidence.start_char = None;
+            evidence.end_char = None;
+            evidence.quote = Some(quote.to_string());
+            Some(evidence)
+        })
+        .collect()
+}
+
+fn character_identities_for_relationships(
+    document: &StoryExtractionDocument,
+) -> Vec<CharacterIdentity> {
+    let mut identities = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for record in &document.records {
+        if record.group_key != "character" || record.mentions.is_empty() {
+            continue;
+        }
+
+        let key = normalize_ascii_snake_key(
+            record
+                .entity_key
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&record.display_name),
+        );
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+
+        identities.push(CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_payload_record(record),
+        });
+    }
+
+    identities
+}
+
+fn normalize_character_relationships(
+    relationships: Vec<CharacterRelationshipExtraction>,
+) -> Vec<CharacterRelationshipExtraction> {
+    let mut normalized = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for mut relationship in relationships {
+        relationship.relationship_type = normalize_ascii_snake_key(&relationship.relationship_type);
+        relationship.a_to_b_label = relationship.a_to_b_label.trim().to_string();
+        relationship.b_to_a_label = relationship.b_to_a_label.trim().to_string();
+
+        if relationship.relationship_type.is_empty()
+            || relationship.a_to_b_label.is_empty()
+            || relationship.b_to_a_label.is_empty()
+            || !relationship.evidence.iter().any(|evidence| {
+                evidence
+                    .quote
+                    .as_deref()
+                    .is_some_and(|quote| !quote.trim().is_empty())
+            })
+        {
+            continue;
+        }
+
+        for evidence in &mut relationship.evidence {
+            evidence.start_char = None;
+            evidence.end_char = None;
+        }
+
+        let key = format!(
+            "{}:{}:{}",
+            relationship.relationship_type,
+            normalized_text_key(&relationship.a_to_b_label),
+            normalized_text_key(&relationship.b_to_a_label)
+        );
+        if seen.insert(key) {
+            normalized.push(relationship);
+        }
+    }
+
+    normalized
+}
+
+async fn verify_character_relationships(
+    state: &AppState,
+    relationship_input: &DraftExtractionInput,
+    character_a: &CharacterIdentity,
+    character_b: &CharacterIdentity,
+    relationships: Vec<CharacterRelationshipExtraction>,
+) -> (Vec<CharacterRelationshipExtraction>, Vec<serde_json::Value>) {
+    let character_a_json = serde_json::to_string(character_a).unwrap_or_else(|_| "{}".to_string());
+    let character_b_json = serde_json::to_string(character_b).unwrap_or_else(|_| "{}".to_string());
+    let mut verified_relationships = Vec::new();
+    let mut reports = Vec::new();
+
+    for relationship in relationships {
+        let relationship_json = serde_json::to_string(&json!({
+            "relationship_type": &relationship.relationship_type,
+            "a_to_b_label": &relationship.a_to_b_label,
+            "b_to_a_label": &relationship.b_to_a_label,
+            "confidence": relationship.confidence,
+            "evidence": &relationship.evidence,
+        }))
+        .unwrap_or_else(|_| "{}".to_string());
+        let prompt = build_character_relationship_verification_prompt(
+            relationship_input,
+            &character_a_json,
+            &character_b_json,
+            &relationship_json,
+        );
+        let verification_result = call_local_json_array::<CharacterRelationshipVerification>(
+            state,
+            &prompt,
+            CHARACTER_RELATIONSHIP_VERIFICATION_MAX_TOKENS,
+        )
+        .await;
+
+        match verification_result {
+            Ok((verifications, response)) => {
+                let verification = verifications.into_iter().next();
+                let accepted = verification
+                    .as_ref()
+                    .is_some_and(|verification| relationship_verification_accepts(verification));
+                reports.push(json!({
+                    "character_a": &character_a.name,
+                    "character_b": &character_b.name,
+                    "relationship_type": &relationship.relationship_type,
+                    "a_to_b_label": &relationship.a_to_b_label,
+                    "b_to_a_label": &relationship.b_to_a_label,
+                    "accepted": accepted,
+                    "verification": verification,
+                    "response": response,
+                }));
+
+                if accepted {
+                    verified_relationships.push(relationship);
+                }
+            }
+            Err(error) => {
+                reports.push(json!({
+                    "character_a": &character_a.name,
+                    "character_b": &character_b.name,
+                    "relationship_type": &relationship.relationship_type,
+                    "a_to_b_label": &relationship.a_to_b_label,
+                    "b_to_a_label": &relationship.b_to_a_label,
+                    "accepted": false,
+                    "mode": "relationship_verification_failed",
+                    "error": error.message,
+                }));
+            }
+        }
+    }
+
+    (verified_relationships, reports)
+}
+
+fn relationship_verification_accepts(verification: &CharacterRelationshipVerification) -> bool {
+    verification.accepted
+        && verification.owner_direction_ok
+        && verification.confidence.unwrap_or(0.0)
+            >= CHARACTER_RELATIONSHIP_VERIFICATION_MIN_CONFIDENCE
+        && relationship_scope_is_persistable(&verification.relationship_scope)
+}
+
+fn relationship_scope_is_persistable(scope: &str) -> bool {
+    matches!(
+        normalize_ascii_snake_key(scope).as_str(),
+        "kinship" | "organization_hierarchy" | "stable_relationship"
+    )
+}
+
+fn relationship_pair_to_record(
+    character_a: &CharacterIdentity,
+    character_b: &CharacterIdentity,
+    relationships: Vec<CharacterRelationshipExtraction>,
+) -> Option<StoryExtractionRecordPayload> {
+    let character_a_key = normalize_ascii_snake_key(&character_a.name);
+    let character_b_key = normalize_ascii_snake_key(&character_b.name);
+    if character_a_key.is_empty() || character_b_key.is_empty() {
+        return None;
+    }
+
+    let mut values = Vec::new();
+    for relationship in relationships {
+        values.push(relationship_field_value(
+            &relationship.a_to_b_label,
+            &relationship,
+            &character_b.name,
+        ));
+        values.push(relationship_field_value(
+            &relationship.b_to_a_label,
+            &relationship,
+            &character_a.name,
+        ));
+    }
+
+    if values.is_empty() {
+        return None;
+    }
+
+    Some(StoryExtractionRecordPayload {
+        group_key: "relationship".to_string(),
+        group_label: "Quan Hệ".to_string(),
+        entity_key: Some(format!(
+            "relationship|{}|{}",
+            character_a_key, character_b_key
+        )),
+        display_name: format!("{} ↔ {}", character_a.name, character_b.name),
+        mentions: Vec::new(),
+        fields: vec![StoryExtractionFieldPayload {
+            field_key: "relationship".to_string(),
+            field_label: "Quan hệ".to_string(),
+            values,
+        }],
+    })
+}
+
+fn relationship_field_value(
+    label: &str,
+    relationship: &CharacterRelationshipExtraction,
+    related_character: &str,
+) -> StoryExtractionFieldValuePayload {
+    StoryExtractionFieldValuePayload {
+        value: label.to_string(),
+        confidence: relationship.confidence,
+        related_character: Some(related_character.to_string()),
+        relationship_type: Some(relationship.relationship_type.clone()),
+        relationship_label: Some(label.to_string()),
+        relationship_direction: Some("self_to_related".to_string()),
+        evidence: relationship.evidence.clone(),
     }
 }
 
@@ -1454,55 +3996,18 @@ async fn scan_character_mentions_with_backend(
     let selected = select_non_overlapping_occurrences(scanned);
     let mut mentions = Vec::new();
     let mut occurrence_reports = Vec::new();
+    let mut ambiguous_groups = Vec::<(String, Vec<ScannedCharacterOccurrence>)>::new();
+    let mut ambiguous_group_indexes = std::collections::HashMap::<String, usize>::new();
 
     for occurrence in selected {
         if occurrence.ambiguous {
-            let context = character_occurrence_context(
-                chapter_text,
-                occurrence.start_char,
-                occurrence.end_char,
-                CHARACTER_OCCURRENCE_CONTEXT_CHARS,
-            );
-            let confirmation_input = DraftExtractionInput {
-                chapter_num: chunk_input.chapter_num,
-                title: chunk_input.title.clone(),
-                source_language: chunk_input.source_language.clone(),
-                text: context,
-                prior_context: Some(
-                    "Backend đã exact-scan surface bằng boundary ký tự trước khi hỏi xác nhận."
-                        .to_string(),
-                ),
-            };
-            let prompt = build_character_occurrence_confirmation_prompt(
-                &confirmation_input,
-                character_json,
-                &occurrence.text,
-            );
-            let (confirmations, response) =
-                call_local_json_array::<CharacterOccurrenceConfirmation>(
-                    state,
-                    &prompt,
-                    CHARACTER_OCCURRENCE_CONFIRMATION_MAX_TOKENS,
-                )
-                .await?;
-            let confirmation = confirmations.into_iter().next();
-            let confirmed = confirmation.as_ref().is_some_and(|item| {
-                item.is_character_mention && item.confidence.unwrap_or(1.0) >= 0.5
-            });
-
-            occurrence_reports.push(json!({
-                "mode": "llm_context_confirmation",
-                "occurrence": occurrence.clone(),
-                "confirmed": confirmed,
-                "confirmation": confirmation,
-                "response": response,
-            }));
-
-            if !confirmed {
-                continue;
+            let group_key = character_occurrence_group_key(&occurrence);
+            if let Some(index) = ambiguous_group_indexes.get(&group_key).copied() {
+                ambiguous_groups[index].1.push(occurrence);
+            } else {
+                ambiguous_group_indexes.insert(group_key.clone(), ambiguous_groups.len());
+                ambiguous_groups.push((group_key, vec![occurrence]));
             }
-
-            mentions.push(scanned_occurrence_to_mention(occurrence));
         } else {
             occurrence_reports.push(json!({
                 "mode": "direct_boundary_scan",
@@ -1513,15 +4018,192 @@ async fn scan_character_mentions_with_backend(
         }
     }
 
+    for (group_key, occurrences) in ambiguous_groups {
+        let occurrence_count = occurrences.len();
+        let surface_text = occurrences
+            .first()
+            .map(|occurrence| occurrence.text.clone())
+            .unwrap_or_default();
+        let samples = sample_character_occurrences_for_confirmation(&occurrences);
+        let mut sample_reports = Vec::new();
+        let mut confirmed_samples = Vec::new();
+        let mut rejected_sample_count = 0usize;
+
+        for occurrence in &samples {
+            let (confirmed, confirmation, response) = confirm_character_occurrence_with_llm(
+                state,
+                chunk_input,
+                character_json,
+                chapter_text,
+                occurrence,
+            )
+            .await?;
+
+            sample_reports.push(json!({
+                "occurrence": occurrence,
+                "confirmed": confirmed,
+                "confirmation": confirmation,
+                "response": response,
+            }));
+
+            if confirmed {
+                confirmed_samples.push(occurrence.clone());
+            } else {
+                rejected_sample_count += 1;
+            }
+        }
+
+        let accept_all = !samples.is_empty()
+            && rejected_sample_count == 0
+            && surface_sample_confirmation_can_accept_all(&surface_text);
+
+        if accept_all {
+            for occurrence in occurrences {
+                mentions.push(scanned_occurrence_to_mention(occurrence));
+            }
+        } else {
+            for occurrence in confirmed_samples {
+                mentions.push(scanned_occurrence_to_mention(occurrence));
+            }
+        }
+
+        let confirmed_sample_count = sample_reports
+            .iter()
+            .filter(|report| {
+                report
+                    .get("confirmed")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            })
+            .count();
+
+        occurrence_reports.push(json!({
+            "mode": "llm_surface_sample_confirmation",
+            "surface_key": group_key,
+            "surface_text": surface_text,
+            "occurrence_count": occurrence_count,
+            "sample_limit": CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT,
+            "sample_count": samples.len(),
+            "confirmed_sample_count": confirmed_sample_count,
+            "rejected_sample_count": rejected_sample_count,
+            "decision": if accept_all { "accept_all_occurrences" } else { "accept_confirmed_samples_only" },
+            "samples": sample_reports,
+        }));
+    }
+
+    mentions.sort_by(|left, right| {
+        left.start_char
+            .cmp(&right.start_char)
+            .then_with(|| right.end_char.cmp(&left.end_char))
+    });
+
     let report = json!({
-        "mode": "backend_surface_scan_with_optional_llm_confirmation",
+        "mode": "backend_surface_scan_with_sampled_llm_confirmation",
         "surface_count": surfaces.len(),
         "scanned_occurrence_count": scanned_count,
         "confirmed_mention_count": mentions.len(),
+        "confirmation_sample_limit": CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT,
         "occurrences": occurrence_reports,
     });
 
     Ok((mentions, report))
+}
+
+async fn confirm_character_occurrence_with_llm(
+    state: &AppState,
+    chunk_input: &DraftExtractionInput,
+    character_json: &str,
+    chapter_text: &str,
+    occurrence: &ScannedCharacterOccurrence,
+) -> Result<
+    (
+        bool,
+        Option<CharacterOccurrenceConfirmation>,
+        serde_json::Value,
+    ),
+    ApiError,
+> {
+    let context = character_occurrence_context(
+        chapter_text,
+        occurrence.start_char,
+        occurrence.end_char,
+        CHARACTER_OCCURRENCE_CONTEXT_CHARS,
+    );
+    let parent_prior_context = chunk_input.prior_context.as_deref().unwrap_or("").trim();
+    let confirmation_prior_context = if parent_prior_context.is_empty() {
+        "Backend đã exact-scan surface bằng boundary ký tự trước khi hỏi xác nhận.".to_string()
+    } else {
+        format!(
+            "{parent_prior_context}\n\nBackend đã exact-scan surface bằng boundary ký tự trước khi hỏi xác nhận."
+        )
+    };
+    let confirmation_input = DraftExtractionInput {
+        chapter_num: chunk_input.chapter_num,
+        title: chunk_input.title.clone(),
+        source_language: chunk_input.source_language.clone(),
+        text: context,
+        prior_context: Some(confirmation_prior_context),
+    };
+    let prompt = build_character_occurrence_confirmation_prompt(
+        &confirmation_input,
+        character_json,
+        &occurrence.text,
+    );
+    let (confirmations, response) = call_local_json_array::<CharacterOccurrenceConfirmation>(
+        state,
+        &prompt,
+        CHARACTER_OCCURRENCE_CONFIRMATION_MAX_TOKENS,
+    )
+    .await?;
+    let confirmation = confirmations.into_iter().next();
+    let confirmed = confirmation.as_ref().is_some_and(|item| {
+        item.is_character_mention
+            && item.confidence.unwrap_or(1.0) >= CHARACTER_OCCURRENCE_CONFIRMATION_MIN_CONFIDENCE
+    });
+
+    Ok((confirmed, confirmation, json!(response)))
+}
+
+fn character_occurrence_group_key(occurrence: &ScannedCharacterOccurrence) -> String {
+    format!(
+        "{}:{}",
+        occurrence.mention_type,
+        normalized_text_key(&occurrence.text)
+    )
+}
+
+fn sample_character_occurrences_for_confirmation(
+    occurrences: &[ScannedCharacterOccurrence],
+) -> Vec<ScannedCharacterOccurrence> {
+    if occurrences.len() <= CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT {
+        return occurrences.to_vec();
+    }
+
+    let last_index = occurrences.len() - 1;
+    let sample_slots = CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT.saturating_sub(1);
+    let mut samples = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for sample_index in 0..CHARACTER_OCCURRENCE_CONFIRMATION_SAMPLE_LIMIT {
+        let occurrence_index = if sample_slots == 0 {
+            0
+        } else {
+            sample_index * last_index / sample_slots
+        };
+
+        if seen.insert(occurrence_index) {
+            samples.push(occurrences[occurrence_index].clone());
+        }
+    }
+
+    samples
+}
+
+fn surface_sample_confirmation_can_accept_all(surface: &str) -> bool {
+    let tokens = surface.split_whitespace().collect::<Vec<_>>();
+    let char_count = surface.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    char_count >= 5 && tokens.len() >= 2
 }
 
 fn scanned_occurrence_to_mention(occurrence: ScannedCharacterOccurrence) -> StoryCharacterMention {
@@ -1576,10 +4258,6 @@ fn push_character_surface(
 fn clean_character_surface(value: &str) -> String {
     let mut surface = value.trim().trim_matches(is_quote_char).to_string();
     surface = surface.split_whitespace().collect::<Vec<_>>().join(" ");
-
-    if let Some((before_owner, _)) = surface.split_once(" của ") {
-        surface = before_owner.trim().to_string();
-    }
 
     for suffix in [" này", " đó", " kia"] {
         if surface.ends_with(suffix) {
@@ -1849,59 +4527,327 @@ fn merge_character_identity_records(
     identities: &[CharacterIdentity],
 ) {
     for identity in identities {
-        let record = identity_to_record(identity);
-        if let Some(target) = document
-            .records
-            .iter_mut()
-            .find(|record| payload_record_matches_identity(record, identity))
-        {
+        let mut record = identity_to_record(identity, document.chapter_num);
+        let exact_index = document.records.iter().position(|record| {
+            record.group_key == "character"
+                && normalized_text_key(&record.display_name) == normalized_text_key(&identity.name)
+        });
+        let matched_index = exact_index.or_else(|| {
+            document
+                .records
+                .iter()
+                .position(|record| payload_record_matches_identity(record, identity))
+        });
+
+        if let Some(index) = matched_index {
+            let target = &mut document.records[index];
+            target.group_key = "character".to_string();
+            target.group_label = "Nhân Vật".to_string();
+            target.display_name = identity.name.clone();
+            target.entity_key = record.entity_key.take();
             merge_character_record(target, record);
         } else {
             document.records.push(record);
         }
     }
+
+    dedupe_character_records_by_identity(document);
 }
 
-fn resolve_character_identities_across_chapters(
+fn dedupe_character_records_by_identity(document: &mut StoryExtractionDocument) {
+    let mut index = 0;
+    while index < document.records.len() {
+        if document.records[index].group_key != "character" {
+            index += 1;
+            continue;
+        }
+
+        let identity = CharacterIdentity {
+            name: document.records[index].display_name.clone(),
+            aliases: aliases_from_payload_record(&document.records[index]),
+        };
+        let duplicate_index = document
+            .records
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find(|(_, record)| {
+                record.group_key == "character"
+                    && payload_record_matches_identity(record, &identity)
+            })
+            .map(|(duplicate_index, _)| duplicate_index);
+
+        if let Some(duplicate_index) = duplicate_index {
+            let duplicate = document.records.remove(duplicate_index);
+            merge_character_record(&mut document.records[index], duplicate);
+        } else {
+            index += 1;
+        }
+    }
+}
+
+async fn resolve_character_identities_across_chapters(
+    state: &AppState,
+    chunk_input: &DraftExtractionInput,
     identities: Vec<CharacterIdentity>,
     db_records: &[StoryExtractionRecordView],
+    db_aliases: &[StoryCharacterAliasView],
     working_document: &StoryExtractionDocument,
-) -> Vec<CharacterIdentity> {
+) -> (Vec<CharacterIdentity>, Vec<serde_json::Value>) {
     let mut resolved = Vec::new();
+    let mut merge_decision_outputs = Vec::new();
 
     for identity in identities {
-        let canonical =
-            resolve_character_identity_across_chapters(identity, db_records, working_document);
-        merge_character_identity_into_list(&mut resolved, canonical);
+        let (canonical, merge_decision_output) = resolve_character_identity_across_chapters(
+            state,
+            chunk_input,
+            identity,
+            db_records,
+            db_aliases,
+            working_document,
+        )
+        .await;
+        if let Some(output) = merge_decision_output {
+            merge_decision_outputs.push(output);
+        }
+        if let Some(canonical) = canonical {
+            merge_character_identity_into_list(&mut resolved, canonical);
+        }
     }
 
-    resolved
+    (resolved, merge_decision_outputs)
 }
 
-fn resolve_character_identity_across_chapters(
+async fn resolve_character_identity_across_chapters(
+    state: &AppState,
+    chunk_input: &DraftExtractionInput,
     identity: CharacterIdentity,
     db_records: &[StoryExtractionRecordView],
+    db_aliases: &[StoryCharacterAliasView],
     working_document: &StoryExtractionDocument,
-) -> CharacterIdentity {
+) -> (Option<CharacterIdentity>, Option<serde_json::Value>) {
     let known_name_keys = known_character_name_keys(db_records, working_document);
 
     if let Some(record) = find_exact_db_character_record(&identity, db_records) {
-        return identity_from_db_record(record, Some(&identity), &known_name_keys);
+        return (
+            Some(identity_from_db_record(
+                record,
+                Some(&identity),
+                &known_name_keys,
+            )),
+            None,
+        );
     }
 
     if let Some(record) = find_exact_working_character_record(&identity, working_document) {
-        return identity_from_payload_record(record, Some(&identity), &known_name_keys);
+        return (
+            Some(identity_from_payload_record(
+                record,
+                Some(&identity),
+                &known_name_keys,
+            )),
+            None,
+        );
     }
 
-    if let Some(record) = find_alias_db_character_record(&identity, db_records) {
-        return identity_from_db_record(record, Some(&identity), &known_name_keys);
+    if let Some(candidate) =
+        find_exact_alias_map_character_identity(&identity, db_aliases, &known_name_keys)
+    {
+        return (Some(candidate), None);
     }
 
-    if let Some(record) = find_alias_working_character_record(&identity, working_document) {
-        return identity_from_payload_record(record, Some(&identity), &known_name_keys);
+    if let Some(candidate) =
+        find_high_confidence_alias_map_character_identity(&identity, db_aliases, &known_name_keys)
+    {
+        return (Some(candidate), None);
     }
 
-    sanitize_new_character_identity(identity, db_records, working_document)
+    if let Some(record) = find_high_confidence_db_character_record(&identity, db_records) {
+        return (
+            Some(identity_from_db_record(
+                record,
+                Some(&identity),
+                &known_name_keys,
+            )),
+            None,
+        );
+    }
+
+    if let Some(record) = find_high_confidence_working_character_record(&identity, working_document)
+    {
+        return (
+            Some(identity_from_payload_record(
+                record,
+                Some(&identity),
+                &known_name_keys,
+            )),
+            None,
+        );
+    }
+
+    if let Some(candidate) =
+        find_character_merge_review_candidate(&identity, db_records, db_aliases, working_document)
+    {
+        let (decision, response) =
+            confirm_character_identity_merge(state, chunk_input, &identity, &candidate).await;
+        let action = normalize_character_identity_merge_action(&decision.action);
+        let confidence = decision.confidence.unwrap_or(0.0);
+        let observed_name = identity.name.clone();
+        let candidate_name = candidate.display_name.clone();
+
+        if action == "merge_existing"
+            && candidate.score >= CHARACTER_CANONICAL_AI_MERGE_MIN_SCORE
+            && confidence >= CHARACTER_CANONICAL_MERGE_MIN_CONFIDENCE
+        {
+            let mut canonical = CharacterIdentity {
+                name: candidate.display_name.clone(),
+                aliases: candidate.aliases.clone(),
+            };
+            merge_observed_identity_aliases(&mut canonical, Some(&identity), &known_name_keys);
+            return (
+                Some(canonical),
+                Some(json!({
+                    "mode": "ai_merge_confirmation",
+                    "applied": "merge_existing",
+                    "observed_identity": observed_name,
+                    "candidate_identity": candidate_name,
+                    "candidate_score": candidate.score,
+                    "decision": decision,
+                    "response": response,
+                })),
+            );
+        }
+
+        if action == "ignore" && confidence >= CHARACTER_CANONICAL_IGNORE_MIN_CONFIDENCE {
+            return (
+                None,
+                Some(json!({
+                    "mode": "ai_merge_confirmation",
+                    "applied": "ignore",
+                    "observed_identity": observed_name,
+                    "candidate_identity": candidate_name,
+                    "candidate_score": candidate.score,
+                    "decision": decision,
+                    "response": response,
+                })),
+            );
+        }
+
+        if action == "create_new"
+            && observed_identity_is_known_name_phrase(&identity, db_records, working_document)
+        {
+            return (
+                None,
+                Some(json!({
+                    "mode": "ai_merge_confirmation",
+                    "applied": "ignore_known_name_phrase",
+                    "observed_identity": observed_name,
+                    "candidate_identity": candidate_name,
+                    "candidate_score": candidate.score,
+                    "decision": decision,
+                    "response": response,
+                })),
+            );
+        }
+
+        let sanitized = sanitize_new_character_identity(identity, db_records, working_document);
+        return (
+            Some(sanitized),
+            Some(json!({
+                "mode": "ai_merge_confirmation",
+                "applied": "create_new",
+                "observed_identity": observed_name,
+                "candidate_identity": candidate_name,
+                "candidate_score": candidate.score,
+                "decision": decision,
+                "response": response,
+            })),
+        );
+    }
+
+    if let Some(review_candidates) = character_identity_creation_review_candidates(
+        &identity,
+        db_records,
+        db_aliases,
+        working_document,
+        &chunk_input.text,
+    ) {
+        let (decision, response) =
+            confirm_character_identity_creation(state, chunk_input, &identity, &review_candidates)
+                .await;
+        let action = normalize_character_identity_creation_action(&decision.action);
+        let confidence = decision.confidence.unwrap_or(0.0);
+        let observed_name = identity.name.clone();
+        let candidate = find_creation_review_target_candidate(&decision, &review_candidates);
+
+        if action == "merge_existing"
+            && confidence >= CHARACTER_IDENTITY_CREATION_REVIEW_MIN_CONFIDENCE
+        {
+            if let Some(candidate) = candidate {
+                let mut canonical = identity_from_alias_map_candidate(
+                    candidate.clone(),
+                    Some(&identity),
+                    &known_name_keys,
+                );
+                merge_observed_identity_aliases(&mut canonical, Some(&identity), &known_name_keys);
+                return (
+                    Some(canonical),
+                    Some(json!({
+                        "mode": "identity_creation_review",
+                        "applied": "merge_existing",
+                        "observed_identity": observed_name,
+                        "candidate_identity": candidate.display_name,
+                        "decision": decision,
+                        "response": response,
+                    })),
+                );
+            }
+        }
+
+        if action == "reject" && confidence >= CHARACTER_IDENTITY_REJECT_MIN_CONFIDENCE {
+            return (
+                None,
+                Some(json!({
+                    "mode": "identity_creation_review",
+                    "applied": "reject",
+                    "observed_identity": observed_name,
+                    "decision": decision,
+                    "response": response,
+                })),
+            );
+        }
+
+        if observed_identity_is_known_name_phrase(&identity, db_records, working_document) {
+            return (
+                None,
+                Some(json!({
+                    "mode": "identity_creation_review",
+                    "applied": "reject_known_name_phrase",
+                    "observed_identity": observed_name,
+                    "decision": decision,
+                    "response": response,
+                })),
+            );
+        }
+    } else if observed_identity_is_known_name_phrase(&identity, db_records, working_document) {
+        return (
+            None,
+            Some(json!({
+                "mode": "identity_creation_review",
+                "applied": "reject_known_name_phrase",
+                "observed_identity": identity.name,
+            })),
+        );
+    }
+
+    (
+        Some(sanitize_new_character_identity(
+            identity,
+            db_records,
+            working_document,
+        )),
+        None,
+    )
 }
 
 fn find_exact_db_character_record<'a>(
@@ -1925,49 +4871,883 @@ fn find_exact_working_character_record<'a>(
         .find(|record| normalized_text_key(&record.display_name) == name_key)
 }
 
-fn find_alias_db_character_record<'a>(
+fn find_exact_alias_map_character_identity(
+    identity: &CharacterIdentity,
+    db_aliases: &[StoryCharacterAliasView],
+    known_name_keys: &std::collections::HashSet<String>,
+) -> Option<CharacterIdentity> {
+    let mut matched_candidate: Option<CharacterIdentityMergeCandidate> = None;
+    for candidate in character_alias_map_candidates(db_aliases) {
+        let candidate_identity = CharacterIdentity {
+            name: candidate.display_name.clone(),
+            aliases: candidate.aliases.clone(),
+        };
+        if character_identity_candidate_score(identity, &candidate_identity) < 1.0 {
+            continue;
+        }
+
+        if matched_candidate
+            .as_ref()
+            .is_some_and(|matched| matched.target_key != candidate.target_key)
+        {
+            return None;
+        }
+
+        matched_candidate = Some(candidate);
+    }
+
+    matched_candidate.map(|candidate| {
+        identity_from_alias_map_candidate(candidate, Some(identity), known_name_keys)
+    })
+}
+
+fn find_high_confidence_db_character_record<'a>(
     identity: &CharacterIdentity,
     db_records: &'a [StoryExtractionRecordView],
 ) -> Option<&'a StoryExtractionRecordView> {
-    let alias_keys = identity_alias_resolution_keys(identity);
-    if alias_keys.is_empty() {
-        return None;
+    let mut best: Option<(&StoryExtractionRecordView, f64)> = None;
+    let mut best_tie_count = 0;
+
+    for record in db_records {
+        let candidate = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate);
+        if score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE {
+            continue;
+        }
+
+        match best {
+            Some((_, best_score)) if score > best_score => {
+                best = Some((record, score));
+                best_tie_count = 1;
+            }
+            Some((_, best_score)) if (score - best_score).abs() < f64::EPSILON => {
+                best_tie_count += 1;
+            }
+            None => {
+                best = Some((record, score));
+                best_tie_count = 1;
+            }
+            _ => {}
+        }
     }
 
-    db_records.iter().find(|record| {
-        alias_keys.contains(&normalized_text_key(&record.display_name))
-            || aliases_from_record(record)
-                .iter()
-                .any(|alias| alias_keys.contains(&normalized_text_key(&alias.text)))
-    })
+    if best_tie_count == 1 {
+        best.map(|(record, _)| record)
+    } else {
+        None
+    }
 }
 
-fn find_alias_working_character_record<'a>(
+fn find_high_confidence_working_character_record<'a>(
     identity: &CharacterIdentity,
     working_document: &'a StoryExtractionDocument,
 ) -> Option<&'a StoryExtractionRecordPayload> {
-    let alias_keys = identity_alias_resolution_keys(identity);
-    if alias_keys.is_empty() {
+    let mut best: Option<(&StoryExtractionRecordPayload, f64)> = None;
+    let mut best_tie_count = 0;
+
+    for record in &working_document.records {
+        if record.group_key != "character" {
+            continue;
+        }
+
+        let candidate = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_payload_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate);
+        if score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE {
+            continue;
+        }
+
+        match best {
+            Some((_, best_score)) if score > best_score => {
+                best = Some((record, score));
+                best_tie_count = 1;
+            }
+            Some((_, best_score)) if (score - best_score).abs() < f64::EPSILON => {
+                best_tie_count += 1;
+            }
+            None => {
+                best = Some((record, score));
+                best_tie_count = 1;
+            }
+            _ => {}
+        }
+    }
+
+    if best_tie_count == 1 {
+        best.map(|(record, _)| record)
+    } else {
+        None
+    }
+}
+
+fn find_high_confidence_alias_map_character_identity(
+    identity: &CharacterIdentity,
+    db_aliases: &[StoryCharacterAliasView],
+    known_name_keys: &std::collections::HashSet<String>,
+) -> Option<CharacterIdentity> {
+    let mut best: Option<(CharacterIdentityMergeCandidate, f64)> = None;
+    let mut best_tie_count = 0;
+
+    for candidate in character_alias_map_candidates(db_aliases) {
+        let candidate_identity = CharacterIdentity {
+            name: candidate.display_name.clone(),
+            aliases: candidate.aliases.clone(),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE {
+            continue;
+        }
+
+        match best {
+            Some((_, best_score)) if score > best_score => {
+                best = Some((candidate, score));
+                best_tie_count = 1;
+            }
+            Some((_, best_score)) if (score - best_score).abs() < f64::EPSILON => {
+                best_tie_count += 1;
+            }
+            None => {
+                best = Some((candidate, score));
+                best_tie_count = 1;
+            }
+            _ => {}
+        }
+    }
+
+    if best_tie_count == 1 {
+        best.map(|(candidate, _)| {
+            identity_from_alias_map_candidate(candidate, Some(identity), known_name_keys)
+        })
+    } else {
+        None
+    }
+}
+
+fn character_identity_creation_review_candidates(
+    identity: &CharacterIdentity,
+    db_records: &[StoryExtractionRecordView],
+    db_aliases: &[StoryCharacterAliasView],
+    working_document: &StoryExtractionDocument,
+    chunk_text: &str,
+) -> Option<Vec<CharacterIdentityMergeCandidate>> {
+    let mut candidates = std::collections::HashMap::new();
+
+    for mut candidate in character_alias_map_candidates(db_aliases) {
+        let candidate_identity = CharacterIdentity {
+            name: candidate.display_name.clone(),
+            aliases: candidate.aliases.clone(),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if !identity_creation_candidate_is_relevant(
+            identity,
+            &candidate_identity,
+            chunk_text,
+            score,
+        ) {
+            continue;
+        }
+        candidate.score = score;
+        push_character_merge_review_candidate(&mut candidates, candidate);
+    }
+
+    for record in db_records {
+        let candidate_identity = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if !identity_creation_candidate_is_relevant(
+            identity,
+            &candidate_identity,
+            chunk_text,
+            score,
+        ) {
+            continue;
+        }
+
+        push_character_merge_review_candidate(
+            &mut candidates,
+            CharacterIdentityMergeCandidate {
+                target_key: record
+                    .entity_key
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| normalize_ascii_snake_key(&record.display_name)),
+                display_name: candidate_identity.name,
+                aliases: candidate_identity.aliases,
+                score,
+                source: "db_creation_review".to_string(),
+                chapter_num: Some(record.chapter_num),
+            },
+        );
+    }
+
+    for record in &working_document.records {
+        if record.group_key != "character" {
+            continue;
+        }
+
+        let candidate_identity = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_payload_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if !identity_creation_candidate_is_relevant(
+            identity,
+            &candidate_identity,
+            chunk_text,
+            score,
+        ) {
+            continue;
+        }
+
+        push_character_merge_review_candidate(
+            &mut candidates,
+            CharacterIdentityMergeCandidate {
+                target_key: record
+                    .entity_key
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| normalize_ascii_snake_key(&record.display_name)),
+                display_name: candidate_identity.name,
+                aliases: candidate_identity.aliases,
+                score,
+                source: "working_creation_review".to_string(),
+                chapter_num: Some(working_document.chapter_num),
+            },
+        );
+    }
+
+    let mut candidates = candidates.into_values().collect::<Vec<_>>();
+    if candidates.is_empty() {
         return None;
     }
 
-    working_document.records.iter().find(|record| {
-        alias_keys.contains(&normalized_text_key(&record.display_name))
-            || aliases_from_payload_record(record)
-                .iter()
-                .any(|alias| alias_keys.contains(&normalized_text_key(&alias.text)))
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.chapter_num.cmp(&right.chapter_num))
+            .then_with(|| left.display_name.cmp(&right.display_name))
+    });
+    candidates.truncate(12);
+    Some(candidates)
+}
+
+fn identity_creation_candidate_is_relevant(
+    observed: &CharacterIdentity,
+    candidate: &CharacterIdentity,
+    chunk_text: &str,
+    score: f64,
+) -> bool {
+    score >= CHARACTER_CANONICAL_REVIEW_MIN_SCORE
+        || character_identity_any_surface_appears(candidate, chunk_text)
+        || observed_identity_contains_candidate_surface(observed, candidate)
+}
+
+fn character_identity_any_surface_appears(identity: &CharacterIdentity, text: &str) -> bool {
+    character_identity_surfaces(identity)
+        .into_iter()
+        .any(|(surface, _)| {
+            !find_surface_occurrences(text, &surface, "identity_review", false).is_empty()
+        })
+}
+
+fn observed_identity_contains_candidate_surface(
+    observed: &CharacterIdentity,
+    candidate: &CharacterIdentity,
+) -> bool {
+    let observed_key = normalized_folded_text_key(&observed.name);
+    if observed_key.is_empty() {
+        return false;
+    }
+
+    character_identity_surfaces(candidate)
+        .into_iter()
+        .any(|(surface, _)| {
+            let candidate_key = normalized_folded_text_key(&surface);
+            !candidate_key.is_empty()
+                && candidate_key != observed_key
+                && (observed_key.starts_with(&(candidate_key.clone() + "_"))
+                    || observed_key.ends_with(&("_".to_string() + &candidate_key)))
+        })
+}
+
+fn observed_identity_is_known_name_phrase(
+    identity: &CharacterIdentity,
+    db_records: &[StoryExtractionRecordView],
+    working_document: &StoryExtractionDocument,
+) -> bool {
+    let observed_key = normalized_folded_text_key(&identity.name);
+    if observed_key.is_empty() {
+        return false;
+    }
+
+    let mut known_surfaces = Vec::new();
+    known_surfaces.extend(db_records.iter().map(|record| record.display_name.clone()));
+    known_surfaces.extend(
+        working_document
+            .records
+            .iter()
+            .filter(|record| record.group_key == "character")
+            .map(|record| record.display_name.clone()),
+    );
+
+    known_surfaces.into_iter().any(|surface| {
+        let known_key = normalized_folded_text_key(&surface);
+        !known_key.is_empty()
+            && known_key != observed_key
+            && (observed_key.starts_with(&(known_key.clone() + "_"))
+                || observed_key.ends_with(&("_".to_string() + &known_key)))
     })
 }
 
-fn identity_alias_resolution_keys(
+fn find_character_merge_review_candidate(
     identity: &CharacterIdentity,
-) -> std::collections::HashSet<String> {
+    db_records: &[StoryExtractionRecordView],
+    db_aliases: &[StoryCharacterAliasView],
+    working_document: &StoryExtractionDocument,
+) -> Option<CharacterIdentityMergeCandidate> {
+    let mut candidates = std::collections::HashMap::new();
+
+    for mut candidate in character_alias_map_candidates(db_aliases) {
+        let candidate_identity = CharacterIdentity {
+            name: candidate.display_name.clone(),
+            aliases: candidate.aliases.clone(),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if score >= CHARACTER_CANONICAL_REVIEW_MIN_SCORE
+            && score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE
+        {
+            candidate.score = score;
+            push_character_merge_review_candidate(&mut candidates, candidate);
+        }
+    }
+
+    for record in db_records {
+        let candidate_identity = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if score >= CHARACTER_CANONICAL_REVIEW_MIN_SCORE
+            && score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE
+        {
+            push_character_merge_review_candidate(
+                &mut candidates,
+                CharacterIdentityMergeCandidate {
+                    target_key: record
+                        .entity_key
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| normalize_ascii_snake_key(&record.display_name)),
+                    display_name: candidate_identity.name,
+                    aliases: candidate_identity.aliases,
+                    score,
+                    source: "db".to_string(),
+                    chapter_num: Some(record.chapter_num),
+                },
+            );
+        }
+    }
+
+    for record in &working_document.records {
+        if record.group_key != "character" {
+            continue;
+        }
+
+        let candidate_identity = CharacterIdentity {
+            name: record.display_name.clone(),
+            aliases: aliases_from_payload_record(record),
+        };
+        let score = character_identity_candidate_score(identity, &candidate_identity);
+        if score >= CHARACTER_CANONICAL_REVIEW_MIN_SCORE
+            && score < CHARACTER_CANONICAL_AUTO_MERGE_SCORE
+        {
+            push_character_merge_review_candidate(
+                &mut candidates,
+                CharacterIdentityMergeCandidate {
+                    target_key: record
+                        .entity_key
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| normalize_ascii_snake_key(&record.display_name)),
+                    display_name: candidate_identity.name,
+                    aliases: candidate_identity.aliases,
+                    score,
+                    source: "working_document".to_string(),
+                    chapter_num: Some(working_document.chapter_num),
+                },
+            );
+        }
+    }
+
+    let mut candidates = candidates.into_values().collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.display_name.cmp(&right.display_name))
+    });
+
+    let best = candidates.first()?;
+    if candidates
+        .get(1)
+        .is_some_and(|next| best.score - next.score < CHARACTER_CANONICAL_REVIEW_SCORE_GAP)
+    {
+        return None;
+    }
+
+    Some(best.clone())
+}
+
+fn character_alias_map_candidates(
+    db_aliases: &[StoryCharacterAliasView],
+) -> Vec<CharacterIdentityMergeCandidate> {
+    let mut candidates =
+        std::collections::HashMap::<String, CharacterIdentityMergeCandidate>::new();
+
+    for alias in db_aliases {
+        let target_key = alias.entity_key.trim();
+        if target_key.is_empty() {
+            continue;
+        }
+
+        let entry = candidates.entry(target_key.to_string()).or_insert_with(|| {
+            CharacterIdentityMergeCandidate {
+                target_key: target_key.to_string(),
+                display_name: alias.display_name.clone(),
+                aliases: Vec::new(),
+                score: 0.0,
+                source: "alias_map".to_string(),
+                chapter_num: Some(alias.first_chapter_num),
+            }
+        });
+
+        if alias.alias_type == "canonical_name" {
+            entry.display_name = alias.alias_text.clone();
+        } else {
+            push_character_alias_if_valid(
+                &mut entry.aliases,
+                CharacterAlias {
+                    text: alias.alias_text.clone(),
+                    alias_type: alias.alias_type.clone(),
+                    alias_label: alias.alias_label.clone(),
+                    is_primary: alias.confidence.unwrap_or(0.0) >= 1.0,
+                    evidence: alias.evidence.clone(),
+                },
+                &entry.display_name,
+            );
+        }
+
+        if entry
+            .chapter_num
+            .is_none_or(|chapter_num| alias.first_chapter_num < chapter_num)
+        {
+            entry.chapter_num = Some(alias.first_chapter_num);
+        }
+    }
+
+    candidates.into_values().collect()
+}
+
+fn identity_from_alias_map_candidate(
+    candidate: CharacterIdentityMergeCandidate,
+    observed_identity: Option<&CharacterIdentity>,
+    known_name_keys: &std::collections::HashSet<String>,
+) -> CharacterIdentity {
+    let mut identity = CharacterIdentity {
+        name: candidate.display_name,
+        aliases: candidate.aliases,
+    };
+    merge_observed_identity_aliases(&mut identity, observed_identity, known_name_keys);
     identity
-        .aliases
-        .iter()
-        .map(|alias| normalized_text_key(&alias.text))
-        .filter(|key| !key.is_empty())
-        .collect()
+}
+
+fn push_character_merge_review_candidate(
+    candidates: &mut std::collections::HashMap<String, CharacterIdentityMergeCandidate>,
+    candidate: CharacterIdentityMergeCandidate,
+) {
+    if let Some(existing) = candidates.get_mut(&candidate.target_key) {
+        if candidate.score > existing.score {
+            existing.score = candidate.score;
+        }
+        if existing.chapter_num.is_none_or(|chapter_num| {
+            candidate
+                .chapter_num
+                .is_some_and(|candidate_chapter_num| candidate_chapter_num < chapter_num)
+        }) {
+            existing.chapter_num = candidate.chapter_num;
+        }
+        for alias in candidate.aliases {
+            push_character_alias_if_valid(&mut existing.aliases, alias, &existing.display_name);
+        }
+        return;
+    }
+
+    candidates.insert(candidate.target_key.clone(), candidate);
+}
+
+async fn confirm_character_identity_merge(
+    state: &AppState,
+    chunk_input: &DraftExtractionInput,
+    identity: &CharacterIdentity,
+    candidate: &CharacterIdentityMergeCandidate,
+) -> (CharacterIdentityMergeDecision, serde_json::Value) {
+    let observed_identity_json =
+        serde_json::to_string(identity).unwrap_or_else(|_| "{}".to_string());
+    let candidate_identity_json =
+        serde_json::to_string(candidate).unwrap_or_else(|_| "{}".to_string());
+    let prompt = build_character_identity_merge_confirmation_prompt(
+        chunk_input,
+        &observed_identity_json,
+        &candidate_identity_json,
+    );
+
+    match call_local_json_array::<CharacterIdentityMergeDecision>(
+        state,
+        &prompt,
+        CHARACTER_IDENTITY_MERGE_CONFIRMATION_MAX_TOKENS,
+    )
+    .await
+    {
+        Ok((decisions, response)) => (
+            decisions.into_iter().next().unwrap_or_else(|| {
+                character_identity_merge_decision("create_new", 0.0, "LLM trả mảng rỗng.")
+            }),
+            json!(response),
+        ),
+        Err(error) => (
+            character_identity_merge_decision(
+                "create_new",
+                0.0,
+                "Không parse được JSON xác nhận merge; giữ nhân vật riêng để tránh nhập sai.",
+            ),
+            json!({
+                "mode": "merge_confirmation_failed_non_blocking",
+                "error": error.message,
+            }),
+        ),
+    }
+}
+
+async fn confirm_character_identity_creation(
+    state: &AppState,
+    chunk_input: &DraftExtractionInput,
+    identity: &CharacterIdentity,
+    candidates: &[CharacterIdentityMergeCandidate],
+) -> (CharacterIdentityCreationDecision, serde_json::Value) {
+    let observed_identity_json =
+        serde_json::to_string(identity).unwrap_or_else(|_| "{}".to_string());
+    let candidates_json = serde_json::to_string(candidates).unwrap_or_else(|_| "[]".to_string());
+    let prompt = build_character_identity_creation_review_prompt(
+        chunk_input,
+        &observed_identity_json,
+        &candidates_json,
+    );
+
+    match call_local_json_array::<CharacterIdentityCreationDecision>(
+        state,
+        &prompt,
+        CHARACTER_IDENTITY_CREATION_REVIEW_MAX_TOKENS,
+    )
+    .await
+    {
+        Ok((decisions, response)) => (
+            decisions.into_iter().next().unwrap_or_else(|| {
+                character_identity_creation_decision(
+                    "create_new",
+                    None,
+                    None,
+                    0.0,
+                    "LLM trả mảng rỗng.",
+                )
+            }),
+            json!(response),
+        ),
+        Err(error) => (
+            character_identity_creation_decision(
+                "create_new",
+                None,
+                None,
+                0.0,
+                "Không parse được JSON kiểm tra nhân vật mới; giữ nhân vật riêng để tránh nhập sai.",
+            ),
+            json!({
+                "mode": "identity_creation_review_failed_non_blocking",
+                "error": error.message,
+            }),
+        ),
+    }
+}
+
+fn character_identity_creation_decision(
+    action: &str,
+    target_key: Option<String>,
+    target_name: Option<String>,
+    confidence: f64,
+    reason: &str,
+) -> CharacterIdentityCreationDecision {
+    CharacterIdentityCreationDecision {
+        action: action.to_string(),
+        target_key,
+        target_name,
+        confidence: Some(confidence),
+        reason: Some(reason.to_string()),
+        evidence: Vec::new(),
+    }
+}
+
+fn character_identity_merge_decision(
+    action: &str,
+    confidence: f64,
+    reason: &str,
+) -> CharacterIdentityMergeDecision {
+    CharacterIdentityMergeDecision {
+        action: action.to_string(),
+        confidence: Some(confidence),
+        reason: Some(reason.to_string()),
+    }
+}
+
+fn normalize_character_identity_merge_action(action: &str) -> &'static str {
+    match normalize_ascii_snake_key(action).as_str() {
+        "merge_existing" | "merge" | "merge_into_existing" => "merge_existing",
+        "ignore" | "skip" => "ignore",
+        _ => "create_new",
+    }
+}
+
+fn normalize_character_identity_creation_action(action: &str) -> &'static str {
+    match normalize_ascii_snake_key(action).as_str() {
+        "merge_existing" | "merge" | "merge_into_existing" => "merge_existing",
+        "reject" | "ignore" | "skip" => "reject",
+        _ => "create_new",
+    }
+}
+
+fn find_creation_review_target_candidate<'a>(
+    decision: &CharacterIdentityCreationDecision,
+    candidates: &'a [CharacterIdentityMergeCandidate],
+) -> Option<&'a CharacterIdentityMergeCandidate> {
+    if let Some(target_key) = decision
+        .target_key
+        .as_deref()
+        .map(normalize_ascii_snake_key)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| normalize_ascii_snake_key(&candidate.target_key) == target_key)
+        {
+            return Some(candidate);
+        }
+    }
+
+    let target_name = decision
+        .target_name
+        .as_deref()
+        .map(normalized_text_key)
+        .filter(|value| !value.is_empty())?;
+
+    candidates.iter().find(|candidate| {
+        normalized_text_key(&candidate.display_name) == target_name
+            || candidate
+                .aliases
+                .iter()
+                .any(|alias| normalized_text_key(&alias.text) == target_name)
+    })
+}
+
+fn character_identity_candidate_score(
+    identity: &CharacterIdentity,
+    candidate: &CharacterIdentity,
+) -> f64 {
+    let identity_surfaces = character_resolution_surface_items(identity);
+    let candidate_surfaces = character_resolution_surface_items(candidate);
+    if identity_surfaces.is_empty() || candidate_surfaces.is_empty() {
+        return 0.0;
+    }
+
+    let mut best_score: f64 = 0.0;
+    for left in &identity_surfaces {
+        for right in &candidate_surfaces {
+            if left.key == right.key {
+                if !left.is_canonical || !right.is_alias {
+                    return 1.0;
+                }
+
+                best_score = best_score.max(CHARACTER_CANONICAL_STORED_ALIAS_NAME_MATCH_SCORE);
+                continue;
+            }
+
+            let mut score = character_surface_similarity_score(&left.text, &right.text);
+            if left.is_canonical && right.is_alias {
+                score = score.min(CHARACTER_CANONICAL_STORED_ALIAS_NAME_MATCH_SCORE);
+            }
+            if score > best_score {
+                best_score = score;
+            }
+        }
+    }
+
+    best_score
+}
+
+#[derive(Debug, Clone)]
+struct CharacterResolutionSurface {
+    text: String,
+    key: String,
+    is_canonical: bool,
+    is_alias: bool,
+}
+
+fn character_resolution_surface_items(
+    identity: &CharacterIdentity,
+) -> Vec<CharacterResolutionSurface> {
+    let mut surfaces = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let name = clean_character_surface(&identity.name);
+    let name_key = normalized_folded_text_key(&name);
+    if is_strong_character_resolution_key(&name_key) && seen.insert(name_key.clone()) {
+        surfaces.push(CharacterResolutionSurface {
+            text: name,
+            key: name_key,
+            is_canonical: true,
+            is_alias: false,
+        });
+    }
+
+    for alias in &identity.aliases {
+        let alias_type = normalize_character_alias_type(&alias.alias_type);
+        if !is_persistable_character_alias_type(&alias_type) {
+            continue;
+        }
+
+        let surface = clean_character_surface(&alias.text);
+        let key = normalized_folded_text_key(&surface);
+        if is_strong_character_resolution_key(&key) && seen.insert(key.clone()) {
+            surfaces.push(CharacterResolutionSurface {
+                text: surface,
+                key,
+                is_canonical: false,
+                is_alias: true,
+            });
+        }
+    }
+
+    surfaces
+}
+
+fn character_surface_similarity_score(left: &str, right: &str) -> f64 {
+    let left_key = normalized_folded_text_key(left);
+    let right_key = normalized_folded_text_key(right);
+    if !is_strong_character_resolution_key(&left_key)
+        || !is_strong_character_resolution_key(&right_key)
+    {
+        return 0.0;
+    }
+    if left_key == right_key {
+        return 1.0;
+    }
+
+    let edit_score = levenshtein_similarity_score(&left_key, &right_key);
+    let token_score = token_dice_score(&left_key, &right_key);
+    let substring_score = character_substring_similarity_score(&left_key, &right_key);
+
+    edit_score.max(token_score * 0.9).max(substring_score)
+}
+
+fn character_substring_similarity_score(left_key: &str, right_key: &str) -> f64 {
+    if left_key == right_key {
+        return 1.0;
+    }
+
+    let left_token_count = character_resolution_token_count(left_key);
+    let right_token_count = character_resolution_token_count(right_key);
+    let min_len = left_key.chars().count().min(right_key.chars().count());
+    if min_len < 7 || left_token_count < 2 || right_token_count < 2 {
+        return 0.0;
+    }
+
+    if left_key.contains(right_key) || right_key.contains(left_key) {
+        return 0.93;
+    }
+
+    0.0
+}
+
+fn token_dice_score(left_key: &str, right_key: &str) -> f64 {
+    let left_tokens = left_key
+        .split('_')
+        .filter(|token| !token.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    let right_tokens = right_key
+        .split('_')
+        .filter(|token| !token.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+
+    if left_tokens.is_empty() || right_tokens.is_empty() {
+        return 0.0;
+    }
+
+    let shared_count = left_tokens.intersection(&right_tokens).count();
+    (2.0 * shared_count as f64) / (left_tokens.len() + right_tokens.len()) as f64
+}
+
+fn levenshtein_similarity_score(left: &str, right: &str) -> f64 {
+    let left_chars = left.chars().collect::<Vec<_>>();
+    let right_chars = right.chars().collect::<Vec<_>>();
+    let max_len = left_chars.len().max(right_chars.len());
+    if max_len == 0 {
+        return 0.0;
+    }
+
+    let distance = levenshtein_distance(&left_chars, &right_chars);
+    1.0 - (distance as f64 / max_len as f64)
+}
+
+fn levenshtein_distance(left: &[char], right: &[char]) -> usize {
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    let mut current = vec![0; right.len() + 1];
+
+    for (left_index, left_char) in left.iter().enumerate() {
+        current[0] = left_index + 1;
+        for (right_index, right_char) in right.iter().enumerate() {
+            let insert_cost = current[right_index] + 1;
+            let delete_cost = previous[right_index + 1] + 1;
+            let replace_cost = previous[right_index] + usize::from(left_char != right_char);
+            current[right_index + 1] = insert_cost.min(delete_cost).min(replace_cost);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    previous[right.len()]
+}
+
+fn is_strong_character_resolution_key(key: &str) -> bool {
+    let char_count = key.chars().filter(|ch| *ch != '_').count();
+    if char_count < 4 {
+        return false;
+    }
+
+    character_resolution_token_count(key) >= 2 || char_count >= 6
+}
+
+fn character_resolution_token_count(key: &str) -> usize {
+    key.split('_').filter(|token| !token.is_empty()).count()
 }
 
 fn identity_from_db_record(
@@ -2015,6 +5795,7 @@ fn merge_observed_identity_aliases(
                     alias_type: "other_alias".to_string(),
                     alias_label: "Tên gọi khác".to_string(),
                     is_primary: false,
+                    evidence: Vec::new(),
                 },
                 &target.name,
             );
@@ -2022,7 +5803,7 @@ fn merge_observed_identity_aliases(
     }
 
     for alias in &observed_identity.aliases {
-        if normalize_character_alias_type(&alias.alias_type) == "title_or_role" {
+        if !is_persistable_character_alias_type(&alias.alias_type) {
             continue;
         }
         if known_name_keys.contains(&normalized_text_key(&alias.text))
@@ -2051,7 +5832,7 @@ fn sanitize_new_character_identity(
 
     for alias in identity.aliases {
         let alias_type = normalize_character_alias_type(&alias.alias_type);
-        if alias_type == "title_or_role" {
+        if !is_persistable_character_alias_type(&alias_type) {
             continue;
         }
         if blocked_alias_keys.contains(&normalized_text_key(&alias.text)) {
@@ -2102,20 +5883,36 @@ fn push_character_alias_if_valid(
     alias: CharacterAlias,
     canonical_name: &str,
 ) {
+    let raw_text = alias.text.trim().to_string();
     let text = clean_character_surface(&alias.text);
-    if text.is_empty() || normalized_text_key(&text) == normalized_text_key(canonical_name) {
+    if text.is_empty()
+        || normalized_text_key(&text) == normalized_text_key(canonical_name)
+        || !is_stable_character_alias_surface(&raw_text, &text)
+    {
         return;
     }
 
     let alias_type = normalize_character_alias_type(&alias.alias_type);
-    if alias_type == "relationship_name" || alias_type == "title_or_role" {
+    if !is_persistable_character_alias_type(&alias_type) {
+        return;
+    }
+    if character_alias_surface_contains_canonical_name(&text, canonical_name) {
+        return;
+    }
+    if !character_surface_has_uppercase_token(&text)
+        && !alias_has_direct_quoted_evidence(&alias, &text)
+    {
         return;
     }
 
-    if aliases
-        .iter()
-        .any(|existing| normalized_text_key(&existing.text) == normalized_text_key(&text))
+    if let Some(existing) = aliases
+        .iter_mut()
+        .find(|existing| normalized_text_key(&existing.text) == normalized_text_key(&text))
     {
+        if existing.evidence.is_empty() && !alias.evidence.is_empty() {
+            existing.evidence = alias.evidence;
+        }
+        existing.is_primary = existing.is_primary || alias.is_primary;
         return;
     }
 
@@ -2124,14 +5921,91 @@ fn push_character_alias_if_valid(
         alias_label: normalize_character_alias_label(&alias_type, &alias.alias_label),
         alias_type,
         is_primary: alias.is_primary,
+        evidence: alias.evidence,
     });
 }
 
-fn identity_to_record(identity: &CharacterIdentity) -> StoryExtractionRecordPayload {
+fn is_stable_character_alias_surface(raw_text: &str, clean_text: &str) -> bool {
+    let raw = raw_text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let clean = clean_text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if raw.is_empty() || clean.is_empty() {
+        return false;
+    }
+
+    let raw_key = normalized_text_key(&raw);
+    let clean_key = normalized_text_key(&clean);
+    if raw_key.is_empty() || clean_key.is_empty() {
+        return false;
+    }
+
+    let tokens = clean.split_whitespace().collect::<Vec<_>>();
+    let token_count = tokens.len();
+    let char_count = clean.chars().filter(|ch| ch.is_alphanumeric()).count();
+    let has_uppercase_token = character_surface_has_uppercase_token(&clean);
+
+    if token_count == 0 || char_count <= 3 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count == 1 && char_count <= 4 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count <= 2 && char_count <= 6 {
+        return false;
+    }
+
+    if !has_uppercase_token && token_count > 3 {
+        return false;
+    }
+
+    true
+}
+
+fn character_surface_has_uppercase_token(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .any(|token| token.chars().next().is_some_and(char::is_uppercase))
+}
+
+fn character_alias_surface_contains_canonical_name(alias_text: &str, canonical_name: &str) -> bool {
+    let alias_key = normalized_text_key(alias_text);
+    let canonical_key = normalized_text_key(canonical_name);
+    !alias_key.is_empty()
+        && !canonical_key.is_empty()
+        && alias_key != canonical_key
+        && alias_key.contains(&canonical_key)
+}
+
+fn alias_has_direct_quoted_evidence(alias: &CharacterAlias, alias_text: &str) -> bool {
+    let alias_key = normalized_text_key(alias_text);
+    if alias_key.is_empty() {
+        return false;
+    }
+
+    alias.evidence.iter().any(|evidence| {
+        evidence.quote.as_deref().is_some_and(|quote| {
+            quoted_alias_spans(quote)
+                .iter()
+                .any(|span| normalized_text_key(&clean_character_surface(&span.text)) == alias_key)
+        })
+    })
+}
+
+fn identity_to_record(
+    identity: &CharacterIdentity,
+    chapter_num: i64,
+) -> StoryExtractionRecordPayload {
     let mut fields: Vec<StoryExtractionFieldPayload> = Vec::new();
     for alias in &identity.aliases {
         let field_key = normalize_character_alias_type(&alias.alias_type);
         let field_label = normalize_character_alias_label(&field_key, &alias.alias_label);
+        let evidence = alias
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.chapter_num == chapter_num)
+            .cloned()
+            .collect::<Vec<_>>();
         let value = StoryExtractionFieldValuePayload {
             value: alias.text.clone(),
             confidence: Some(if alias.is_primary { 1.0 } else { 0.95 }),
@@ -2139,7 +6013,7 @@ fn identity_to_record(identity: &CharacterIdentity) -> StoryExtractionRecordPayl
             relationship_type: None,
             relationship_label: None,
             relationship_direction: None,
-            evidence: Vec::new(),
+            evidence,
         };
 
         if let Some(field) = fields
@@ -2189,6 +6063,50 @@ fn working_identities_for_chunk(
     identities
 }
 
+fn hydrate_identities_with_alias_map(
+    mut identities: Vec<CharacterIdentity>,
+    db_aliases: &[StoryCharacterAliasView],
+) -> Vec<CharacterIdentity> {
+    if identities.is_empty() || db_aliases.is_empty() {
+        return identities;
+    }
+
+    let alias_candidates = character_alias_map_candidates(db_aliases);
+    for identity in &mut identities {
+        let identity_key = normalize_ascii_snake_key(&identity.name);
+        let Some(candidate) = alias_candidates.iter().find(|candidate| {
+            candidate.target_key == identity_key
+                || normalized_text_key(&candidate.display_name)
+                    == normalized_text_key(&identity.name)
+                || candidate.aliases.iter().any(|alias| {
+                    normalized_text_key(&alias.text) == normalized_text_key(&identity.name)
+                })
+        }) else {
+            continue;
+        };
+
+        if normalized_text_key(&candidate.display_name) != normalized_text_key(&identity.name) {
+            push_character_alias_if_valid(
+                &mut identity.aliases,
+                CharacterAlias {
+                    text: candidate.display_name.clone(),
+                    alias_type: "other_alias".to_string(),
+                    alias_label: "Tên gọi khác".to_string(),
+                    is_primary: false,
+                    evidence: Vec::new(),
+                },
+                &identity.name,
+            );
+        }
+
+        for alias in &candidate.aliases {
+            push_character_alias_if_valid(&mut identity.aliases, alias.clone(), &identity.name);
+        }
+    }
+
+    identities
+}
+
 fn aliases_from_record(record: &StoryExtractionRecordView) -> Vec<CharacterAlias> {
     let mut aliases = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -2210,6 +6128,7 @@ fn aliases_from_record(record: &StoryExtractionRecordView) -> Vec<CharacterAlias
                     alias_type: normalize_character_alias_type(&field_key),
                     alias_label: field.field_label.clone(),
                     is_primary: value.confidence.unwrap_or(0.0) >= 1.0,
+                    evidence: value.evidence.clone(),
                 });
             }
         }
@@ -2239,6 +6158,7 @@ fn aliases_from_payload_record(record: &StoryExtractionRecordPayload) -> Vec<Cha
                     alias_type: normalize_character_alias_type(&field_key),
                     alias_label: field.field_label.clone(),
                     is_primary: value.confidence.unwrap_or(0.0) >= 1.0,
+                    evidence: value.evidence.clone(),
                 });
             }
         }
@@ -2359,6 +6279,15 @@ fn normalize_character_field_payloads(
             if !field_value_has_quoted_evidence(&value) {
                 continue;
             }
+            if !field_value_has_target_marker(&value) {
+                continue;
+            }
+            if !field_value_has_minimum_confidence(&value) {
+                continue;
+            }
+            if !field_value_is_grounded_in_quoted_evidence(&value) {
+                continue;
+            }
             strip_character_field_markers_from_evidence(&mut value);
             value.related_character = None;
             value.relationship_type = None;
@@ -2377,6 +6306,132 @@ fn normalize_character_field_payloads(
     }
 
     normalized_fields
+}
+
+async fn verify_character_field_payloads(
+    state: &AppState,
+    field_input: Option<&DraftExtractionInput>,
+    identity: &CharacterIdentity,
+    character_json: &str,
+    fields: Vec<StoryExtractionFieldPayload>,
+) -> (Vec<StoryExtractionFieldPayload>, serde_json::Value) {
+    let Some(field_input) = field_input else {
+        return (
+            fields,
+            json!({
+                "mode": "skipped_no_target_context",
+            }),
+        );
+    };
+
+    let mut verified_fields = Vec::new();
+    let mut reports = Vec::new();
+
+    for mut field in fields {
+        let mut verified_values = Vec::new();
+        for value in field.values {
+            let field_value_json = serde_json::to_string(&json!({
+                "field_key": &field.field_key,
+                "field_label": &field.field_label,
+                "value": &value.value,
+                "confidence": value.confidence,
+                "evidence": &value.evidence,
+            }))
+            .unwrap_or_else(|_| "{}".to_string());
+            let prompt = build_character_field_value_verification_prompt(
+                field_input,
+                character_json,
+                &field_value_json,
+            );
+            let verification_result = call_local_json_array::<CharacterFieldValueVerification>(
+                state,
+                &prompt,
+                CHARACTER_FIELD_VALUE_VERIFICATION_MAX_TOKENS,
+            )
+            .await;
+
+            match verification_result {
+                Ok((verifications, response)) => {
+                    let verification = verifications.into_iter().next();
+                    let accepted = verification.as_ref().is_some_and(|verification| {
+                        field_value_verification_accepts(identity, verification)
+                    });
+                    reports.push(json!({
+                        "field_key": &field.field_key,
+                        "field_label": &field.field_label,
+                        "value": &value.value,
+                        "accepted": accepted,
+                        "verification": verification,
+                        "response": response,
+                    }));
+
+                    if accepted {
+                        verified_values.push(value);
+                    }
+                }
+                Err(error) => {
+                    reports.push(json!({
+                        "field_key": &field.field_key,
+                        "field_label": &field.field_label,
+                        "value": &value.value,
+                        "accepted": false,
+                        "mode": "field_value_verification_failed",
+                        "error": error.message,
+                    }));
+                }
+            }
+        }
+
+        if verified_values.is_empty() {
+            continue;
+        }
+        field.values = verified_values;
+        verified_fields.push(field);
+    }
+
+    (
+        verified_fields,
+        json!({
+            "mode": "field_value_verification",
+            "checks": reports,
+        }),
+    )
+}
+
+fn field_value_verification_accepts(
+    identity: &CharacterIdentity,
+    verification: &CharacterFieldValueVerification,
+) -> bool {
+    verification.accepted
+        && verification.confidence.unwrap_or(0.0)
+            >= CHARACTER_FIELD_VALUE_VERIFICATION_MIN_CONFIDENCE
+        && field_value_semantic_class_is_allowed(&verification.semantic_class)
+        && field_value_verification_owner_matches_identity(identity, verification)
+}
+
+fn field_value_semantic_class_is_allowed(semantic_class: &str) -> bool {
+    matches!(
+        normalize_ascii_snake_key(semantic_class).as_str(),
+        "physical_appearance" | "clothing" | "age_or_build" | "appearance"
+    )
+}
+
+fn field_value_verification_owner_matches_identity(
+    identity: &CharacterIdentity,
+    verification: &CharacterFieldValueVerification,
+) -> bool {
+    let Some(owner_name) = verification
+        .owner_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return true;
+    };
+
+    character_identity_surfaces(identity)
+        .into_iter()
+        .any(|(surface, _)| normalized_text_key(&surface) == normalized_text_key(owner_name))
 }
 
 fn strip_character_field_markers_from_evidence(value: &mut StoryExtractionFieldValuePayload) {
@@ -2452,6 +6507,57 @@ fn field_value_has_quoted_evidence(value: &StoryExtractionFieldValuePayload) -> 
     })
 }
 
+fn field_value_has_target_marker(value: &StoryExtractionFieldValuePayload) -> bool {
+    value.evidence.iter().any(|evidence| {
+        evidence.quote.as_deref().is_some_and(|quote| {
+            let quote = quote.trim();
+            quote.contains("[[") && quote.contains("]]")
+        })
+    })
+}
+
+fn field_value_has_minimum_confidence(value: &StoryExtractionFieldValuePayload) -> bool {
+    value
+        .confidence
+        .is_some_and(|confidence| confidence >= CHARACTER_FIELD_VALUE_MIN_CONFIDENCE)
+}
+
+fn field_value_is_grounded_in_quoted_evidence(value: &StoryExtractionFieldValuePayload) -> bool {
+    let value_tokens = normalized_field_value_tokens(&value.value);
+    if value_tokens.is_empty() {
+        return false;
+    }
+
+    value.evidence.iter().any(|evidence| {
+        let Some(quote) = evidence.quote.as_deref() else {
+            return false;
+        };
+        let quote_tokens = normalized_field_value_tokens(quote);
+        if quote_tokens.is_empty() {
+            return false;
+        }
+
+        let overlap_count = value_tokens
+            .iter()
+            .filter(|token| quote_tokens.contains(*token))
+            .count();
+
+        if value_tokens.len() <= 2 {
+            overlap_count == value_tokens.len()
+        } else {
+            overlap_count * 5 >= value_tokens.len() * 3
+        }
+    })
+}
+
+fn normalized_field_value_tokens(value: &str) -> std::collections::HashSet<String> {
+    normalized_folded_text_key(value)
+        .split('_')
+        .filter(|token| token.chars().count() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
 fn field_value_has_relationship_metadata(value: &StoryExtractionFieldValuePayload) -> bool {
     value
         .related_character
@@ -2522,7 +6628,9 @@ fn ensure_character_record<'a>(
         return &mut document.records[index];
     }
 
-    document.records.push(identity_to_record(identity));
+    document
+        .records
+        .push(identity_to_record(identity, document.chapter_num));
     document
         .records
         .last_mut()
@@ -2769,6 +6877,33 @@ fn normalized_text_key(value: &str) -> String {
     normalized
 }
 
+fn normalized_folded_text_key(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_was_separator = true;
+
+    for ch in value.trim().chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            last_was_separator = false;
+        } else if let Some(ascii) = fold_key_char(ch) {
+            normalized.push(ascii);
+            last_was_separator = false;
+        } else if ch.is_alphanumeric() {
+            normalized.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator {
+            normalized.push('_');
+            last_was_separator = true;
+        }
+    }
+
+    while normalized.ends_with('_') {
+        normalized.pop();
+    }
+
+    normalized
+}
+
 fn extract_json_array(content: &str) -> Option<&str> {
     let start = content.find('[')?;
     let end = content.rfind(']')?;
@@ -2810,9 +6945,10 @@ fn validate_character_record(
     chapter_num: i64,
     chapter_text: &str,
 ) -> Result<(), ApiError> {
-    if record.group_key.trim() != "character" {
+    let group_key = record.group_key.trim();
+    if !matches!(group_key, "character" | "relationship") {
         return Err(ApiError::bad_request(
-            "character extraction records must use group_key character",
+            "story extraction records must use group_key character or relationship",
         ));
     }
 
@@ -2828,21 +6964,23 @@ fn validate_character_record(
         ));
     }
 
-    for mention in &record.mentions {
-        if mention.text.trim().is_empty() {
-            return Err(ApiError::bad_request(
-                "character extraction mention text is required",
-            ));
-        }
+    if group_key == "character" {
+        for mention in &record.mentions {
+            if mention.text.trim().is_empty() {
+                return Err(ApiError::bad_request(
+                    "character extraction mention text is required",
+                ));
+            }
 
-        let chapter_len = chapter_text.chars().count() as i64;
-        if mention.start_char < 0
-            || mention.end_char <= mention.start_char
-            || mention.end_char > chapter_len
-        {
-            return Err(ApiError::bad_request(
-                "character extraction mention span is outside chapter bounds",
-            ));
+            let chapter_len = chapter_text.chars().count() as i64;
+            if mention.start_char < 0
+                || mention.end_char <= mention.start_char
+                || mention.end_char > chapter_len
+            {
+                return Err(ApiError::bad_request(
+                    "character extraction mention span is outside chapter bounds",
+                ));
+            }
         }
     }
 
@@ -3013,6 +7151,14 @@ impl ApiError {
         Self {
             status: StatusCode::CONFLICT,
             code: "invalid_job_transition",
+            message: message.into(),
+        }
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "internal_error",
             message: message.into(),
         }
     }

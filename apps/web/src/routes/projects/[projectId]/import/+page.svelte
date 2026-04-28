@@ -14,6 +14,8 @@
 		form?.importForm ?? {
 			title: '',
 			author: '',
+			genre: '',
+			description: '',
 			source_language: '',
 			text: ''
 		}
@@ -22,6 +24,20 @@
 	const importFormError = $derived(
 		form?.importForm && 'error' in form.importForm ? form.importForm.error : null
 	);
+	const importFormMessage = $derived(
+		form?.importForm && 'message' in form.importForm ? form.importForm.message : null
+	);
+	const metadataError = $derived(form && 'metadataError' in form ? form.metadataError : null);
+	const metadataMessage = $derived(form && 'metadataMessage' in form ? form.metadataMessage : null);
+	const activeNovel = $derived(data.workspace.active_novel);
+	const languageOptions = [
+		{ value: 'auto', label: 'Tự nhận diện' },
+		{ value: 'zh', label: 'Tiếng Trung' },
+		{ value: 'vi', label: 'Tiếng Việt' },
+		{ value: 'en', label: 'Tiếng Anh' },
+		{ value: 'ja', label: 'Tiếng Nhật' },
+		{ value: 'ko', label: 'Tiếng Hàn' }
+	];
 
 	function applyFiles(files: FileList | null) {
 		const file = files?.item(0);
@@ -109,24 +125,30 @@
 
 					<label class="form-field">
 						<span class="field-label">Source language</span>
-						<input
-							name="source_language"
-							placeholder="Ví dụ: zh, en, vi"
-							value={importForm.source_language}
-						/>
+						<select name="source_language">
+							{#each languageOptions as option}
+								<option
+									value={option.value}
+									selected={(importForm.source_language || 'auto') === option.value}
+									>{option.label}</option
+								>
+							{/each}
+						</select>
 					</label>
 
-					<div class="form-field">
-						<span class="field-label">Current novel</span>
-						<div class="callout-box">
-							<div class="nav-link__title">
-								{data.workspace.active_novel?.title ?? 'Chưa có truyện nào được import'}
-							</div>
-							<div class="nav-link__meta">
-								Confirm import sẽ thêm một novel mới vào cùng project hiện tại.
-							</div>
-						</div>
-					</div>
+					<label class="form-field">
+						<span class="field-label">Genre</span>
+						<input name="genre" placeholder="Thể loại" value={importForm.genre} />
+					</label>
+
+					<label class="form-field form-field--full">
+						<span class="field-label">Description</span>
+						<textarea
+							name="description"
+							placeholder="Mô tả ngắn hoặc ghi chú metadata của truyện."
+							rows="3">{importForm.description}</textarea
+						>
+					</label>
 
 					<label class="form-field form-field--full">
 						<span class="field-label">Source text</span>
@@ -144,8 +166,16 @@
 						<div class="nav-link__meta">{importFormError}</div>
 					</div>
 				{/if}
+				{#if importFormMessage}
+					<div class="callout-box">
+						<div class="nav-link__title">{importFormMessage}</div>
+					</div>
+				{/if}
 
 				<div class="table-actions">
+					<button class="secondary-button" formaction="?/metadata" type="submit"
+						>AI fill metadata</button
+					>
 					<button class="secondary-button" formaction="?/preview" type="submit"
 						>Preview split</button
 					>
@@ -154,33 +184,64 @@
 			</form>
 		</Panel>
 
-		<Panel subtitle="What the operator should verify" title="Import checks">
-			<div class="detail-list">
-				<div class="event-row">
-					<div>
-						<div class="nav-link__title">Heading detection</div>
-						<div class="nav-link__meta">
-							Kiểm tra chapter boundaries trước khi confirm để tránh tạo chapter sai.
-						</div>
+		<Panel subtitle="Ghi trực tiếp metadata vào DB cho truyện hiện tại" title="Current novel">
+			{#if activeNovel}
+				<form class="detail-list" method="POST">
+					<input name="novel_id" type="hidden" value={activeNovel.id} />
+					<div class="form-grid">
+						<label class="form-field">
+							<span class="field-label">Title</span>
+							<input name="metadata_title" value={activeNovel.title} />
+						</label>
+						<label class="form-field">
+							<span class="field-label">Author</span>
+							<input name="metadata_author" value={activeNovel.author ?? ''} />
+						</label>
+						<label class="form-field">
+							<span class="field-label">Source language</span>
+							<select name="metadata_source_language">
+								{#each languageOptions as option}
+									<option
+										value={option.value}
+										selected={(activeNovel.source_language || 'auto') === option.value}
+										>{option.label}</option
+									>
+								{/each}
+							</select>
+						</label>
+						<label class="form-field">
+							<span class="field-label">Genre</span>
+							<input name="metadata_genre" value={activeNovel.genre ?? ''} />
+						</label>
+						<label class="form-field form-field--full">
+							<span class="field-label">Description</span>
+							<textarea name="metadata_description" rows="4">{activeNovel.description ?? ''}</textarea>
+						</label>
 					</div>
-				</div>
-				<div class="event-row">
-					<div>
-						<div class="nav-link__title">Source segment count</div>
-						<div class="nav-link__meta">
-							Source segment là nền cho translation alignment và evidence span sau này.
+
+					{#if metadataError}
+						<div class="warning-box">
+							<div class="nav-link__title">{metadataError}</div>
 						</div>
-					</div>
-				</div>
-				<div class="event-row">
-					<div>
-						<div class="nav-link__title">Encoding and whitespace</div>
-						<div class="nav-link__meta">
-							Preview trước, rồi mới normalize nếu phát hiện heading hoặc khoảng trắng bất thường.
+					{/if}
+					{#if metadataMessage}
+						<div class="callout-box">
+							<div class="nav-link__title">{metadataMessage}</div>
 						</div>
+					{/if}
+
+					<div class="table-actions">
+						<button class="secondary-button" formaction="?/aiFillActiveMetadata" type="submit"
+							>AI fill and save</button
+						>
+						<button class="action-button" formaction="?/saveMetadata" type="submit"
+							>Save metadata</button
+						>
 					</div>
-				</div>
-			</div>
+				</form>
+			{:else}
+				<div class="empty-note">Chưa có truyện nào được import trong project này.</div>
+			{/if}
 		</Panel>
 	</section>
 

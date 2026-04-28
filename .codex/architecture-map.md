@@ -46,6 +46,27 @@ crates/api
   Axum routers and websocket/sse endpoints
 ```
 
+## Module Governance
+
+Detailed ownership rules and the target directory tree live in `docs/module-architecture.md`.
+
+Line budget for hand-written files:
+
+- Soft limit: 800 lines. Create a split plan before adding new feature logic.
+- Hard limit: 1200 lines. Split route, service, repository, component, or domain modules before adding workflow logic.
+
+Current hard-limit split targets:
+
+- `crates/api/src/lib.rs`
+- `crates/storage/src/sqlite.rs`
+- `crates/core/src/extraction.rs`
+
+Current near-hard-limit split target:
+
+- `apps/web/src/routes/projects/[projectId]/reading/+page.svelte`
+
+Use `docs/checklists/11-module-refactor-checklist.md` to plan the migration sequence.
+
 ## Suggested Apps
 
 ```text

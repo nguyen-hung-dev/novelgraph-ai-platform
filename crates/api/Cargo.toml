@@ -11,7 +11,9 @@ novelgraph-core = { path = "../core" }
 novelgraph-storage = { path = "../storage" }
 anyhow.workspace = true
 axum.workspace = true
+base64 = "0.22"
 reqwest.workspace = true
+ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -2,23 +2,56 @@
 	import { browser } from '$app/environment';
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { Download, FolderSearch2, Play, RefreshCw, Server, Square } from 'lucide-svelte';
+	import {
+		CheckCircle2,
+		Download,
+		FolderSearch2,
+		KeyRound,
+		Play,
+		RefreshCw,
+		Save,
+		Server,
+		Square
+	} from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
+	import type { ByokProviderKeyHealth } from '$lib/api/types';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
 
 	const runtime = $derived(data.runtime);
 	const health = $derived(data.health);
+	const byokProviders = $derived(data.byokProviders ?? []);
+	const byokConfig = $derived(data.byokConfig);
 	const localRuntimeError = $derived(form?.localRuntimeAction?.error ?? null);
+	const byokAction = $derived(form?.byokAction ?? null);
 	const isServerStarting = $derived(Boolean(runtime?.server_running && !health?.reachable));
-	let provider = $state('openai-compatible');
-	let baseUrl = $state('https://api.example.com/v1');
-	let byokModel = $state('gpt-4.1-mini');
+	let provider = $state('gemini');
+	let baseUrl = $state('https://generativelanguage.googleapis.com/v1beta/openai');
+	let byokModel = $state('gemini-2.5-flash');
 	let apiKey = $state('');
-	let sessionOnly = $state(true);
+	let apiKeyDisplay = $state('');
+	let byokStateInitialized = $state(false);
+	const selectedByokProvider = $derived(byokProviders.find((item) => item.id === provider));
+	const byokModels = $derived(selectedByokProvider?.models ?? []);
+	const byokActionMessage = $derived(
+		byokAction ? ('error' in byokAction ? byokAction.error : byokAction.message) : null
+	);
+	const byokActionHealth = $derived(getByokActionHealth(byokAction));
+
+	$effect(() => {
+		if (byokStateInitialized) {
+			return;
+		}
+
+		provider = byokConfig?.provider ?? 'gemini';
+		baseUrl = byokConfig?.base_url ?? 'https://generativelanguage.googleapis.com/v1beta/openai';
+		byokModel = byokConfig?.model ?? 'gemini-2.5-flash';
+		apiKeyDisplay = byokConfig?.api_key_masked ?? '';
+		byokStateInitialized = true;
+	});
 
 	onMount(() => {
 		if (!browser) {
@@ -59,6 +92,74 @@
 
 		const percent = Math.min(100, Math.round((bytesDownloaded / totalBytes) * 100));
 		return `${percent}% · ${formatByteSize(bytesDownloaded)} / ${formatByteSize(totalBytes)}`;
+	}
+
+	function maskApiKey(value: string) {
+		return '*'.repeat(Math.max(8, value.length));
+	}
+
+	function handleProviderChange(event: Event) {
+		const nextProvider = (event.currentTarget as HTMLSelectElement).value;
+		provider = nextProvider;
+		const preset = byokProviders.find((item) => item.id === nextProvider);
+		if (preset) {
+			baseUrl = preset.base_url;
+			byokModel = preset.default_model;
+		}
+		apiKey = '';
+		apiKeyDisplay = nextProvider === byokConfig?.provider ? (byokConfig?.api_key_masked ?? '') : '';
+	}
+
+	function handleApiKeyPaste(event: ClipboardEvent) {
+		event.preventDefault();
+		const value = event.clipboardData?.getData('text')?.trim() ?? '';
+		apiKey = value;
+		apiKeyDisplay = value ? maskApiKey(value) : '';
+	}
+
+	function handleApiKeyInput(event: Event) {
+		const value = (event.currentTarget as HTMLInputElement).value;
+		if (value === '') {
+			apiKey = '';
+			apiKeyDisplay = '';
+			return;
+		}
+
+		if (apiKeyDisplay && value.startsWith(apiKeyDisplay)) {
+			const appended = value.slice(apiKeyDisplay.length);
+			if (appended) {
+				apiKey = `${apiKey}${appended}`;
+				apiKeyDisplay = maskApiKey(apiKey);
+			}
+			return;
+		}
+
+		if (value.split('').every((char) => char === '*')) {
+			const deletedCount = Math.max(0, apiKeyDisplay.length - value.length);
+			if (deletedCount > 0 && apiKey) {
+				apiKey = apiKey.slice(0, Math.max(0, apiKey.length - deletedCount));
+				apiKeyDisplay = apiKey ? maskApiKey(apiKey) : '';
+				return;
+			}
+			apiKeyDisplay = value;
+			return;
+		}
+
+		apiKey = value;
+		apiKeyDisplay = maskApiKey(value);
+	}
+
+	function clearPendingApiKey() {
+		apiKey = '';
+		apiKeyDisplay = byokConfig?.provider === provider ? (byokConfig?.api_key_masked ?? '') : '';
+	}
+
+	function getByokActionHealth(action: typeof byokAction): ByokProviderKeyHealth | null {
+		if (action && 'health' in action && action.health) {
+			return action.health as ByokProviderKeyHealth;
+		}
+
+		return null;
 	}
 </script>
 
@@ -314,49 +415,110 @@
 		</div>
 
 		<div class="settings-column">
-			<Panel subtitle="Session-only first" title="BYOK settings">
+			<Panel subtitle="Google Gemini OpenAI-compatible endpoint" title="BYOK settings">
 				<div class="detail-list">
-					<div class="form-grid">
-						<label class="form-field">
-							<span class="field-label">Provider</span>
-							<select bind:value={provider}>
-								<option value="openai-compatible">OpenAI-compatible</option>
-								<option value="anthropic">Anthropic</option>
-								<option value="deepseek">DeepSeek</option>
-								<option value="gemini">Gemini</option>
-								<option value="local-proxy">Local proxy</option>
-							</select>
-						</label>
-
-						<label class="form-field">
-							<span class="field-label">Model</span>
-							<input bind:value={byokModel} placeholder="Provider model id" type="text" />
-						</label>
-
-						<label class="form-field form-field--full">
-							<span class="field-label">Base URL</span>
-							<input bind:value={baseUrl} placeholder="https://api.example.com/v1" type="url" />
-						</label>
-
-						<label class="form-field form-field--full">
-							<span class="field-label">API key</span>
-							<input bind:value={apiKey} placeholder="sk-..." type="password" />
-						</label>
-					</div>
-
-					<label class="toggle-row">
-						<input bind:checked={sessionOnly} class="checkbox" type="checkbox" />
-						<span>Keep key in session memory only</span>
-					</label>
-
-					<div class="table-actions">
-						<button class="action-button" type="button">Validate key</button>
-						<button class="secondary-button" type="button">Clear session key</button>
+					<div class="status-row">
 						<StatusPill
-							label={apiKey ? 'Masked in UI' : 'No key entered'}
-							tone={apiKey ? 'good' : 'warning'}
+							label={byokConfig?.has_api_key ? 'Key đã lưu trong DB' : 'Chưa có key'}
+							tone={byokConfig?.has_api_key ? 'good' : 'warning'}
+						/>
+						<StatusPill
+							label={byokConfig?.last_health_status === 'valid'
+								? 'Healthy key'
+								: byokConfig?.last_health_status === 'invalid'
+									? 'Key lỗi'
+									: 'Chưa check'}
+							tone={byokConfig?.last_health_status === 'valid'
+								? 'teal'
+								: byokConfig?.last_health_status === 'invalid'
+									? 'warning'
+									: 'neutral'}
 						/>
 					</div>
+
+					<form class="detail-list" method="POST">
+						<input name="api_key" type="hidden" value={apiKey} />
+
+						<div class="form-grid">
+							<label class="form-field">
+								<span class="field-label">Provider</span>
+								<select name="provider" value={provider} onchange={handleProviderChange}>
+									{#each byokProviders as item (item.id)}
+										<option value={item.id}>{item.name}</option>
+									{/each}
+								</select>
+							</label>
+
+							<label class="form-field">
+								<span class="field-label">Model</span>
+								{#if byokModels.length > 0}
+									<select bind:value={byokModel} name="model">
+										{#each byokModels as model (model)}
+											<option value={model}>{model}</option>
+										{/each}
+									</select>
+								{:else}
+									<input bind:value={byokModel} name="model" placeholder="Provider model id" type="text" />
+								{/if}
+							</label>
+
+							<label class="form-field form-field--full">
+								<span class="field-label">Base URL</span>
+								<input bind:value={baseUrl} name="base_url" placeholder="https://api.example.com/v1" type="url" />
+							</label>
+
+							<label class="form-field form-field--full">
+								<span class="field-label">API key</span>
+								<input
+									autocomplete="off"
+									inputmode="text"
+									oninput={handleApiKeyInput}
+									onpaste={handleApiKeyPaste}
+									placeholder={byokConfig?.has_api_key ? byokConfig.api_key_masked : 'AIza...'}
+									spellcheck="false"
+									type="text"
+									value={apiKeyDisplay}
+								/>
+							</label>
+						</div>
+
+						<div class="table-actions">
+							<button class="action-button" formaction="?/checkByokKey" type="submit">
+								<CheckCircle2 size={16} strokeWidth={1.9} />
+								Check healthy key
+							</button>
+							<button class="secondary-button" formaction="?/saveByokSettings" type="submit">
+								<Save size={16} strokeWidth={1.9} />
+								Lưu BYOK
+							</button>
+							<button class="secondary-button" onclick={clearPendingApiKey} type="button">
+								<KeyRound size={16} strokeWidth={1.9} />
+								Xóa key đang nhập
+							</button>
+						</div>
+					</form>
+
+					{#if byokAction}
+						<div class={byokAction.success ? 'info-card' : 'warning-box'}>
+							<div class="nav-link__title">
+								{byokAction.kind === 'checkByokKey' ? 'Kết quả check key' : 'Kết quả lưu BYOK'}
+							</div>
+							<div class="nav-link__meta">
+								{byokActionMessage}
+								{#if byokActionHealth}
+									· HTTP <code>{byokActionHealth.status_code ?? 'n/a'}</code> ·
+									<code>{byokActionHealth.model}</code>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
+					{#if data.byokError}
+						<div class="warning-box">
+							<div class="nav-link__title">BYOK note</div>
+							<div class="nav-link__meta">{data.byokError}</div>
+						</div>
+					{/if}
 				</div>
 			</Panel>
 

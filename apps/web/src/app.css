@@ -226,7 +226,7 @@ button {
 	transition:
 		border-color 140ms ease,
 		background-color 140ms ease,
-	color 140ms ease;
+		color 140ms ease;
 }
 
 .workspace-shell--sidebar-collapsed .nav-link {
@@ -855,6 +855,39 @@ button {
 	text-align: left;
 }
 
+.chapter-title-row {
+	flex-wrap: nowrap;
+}
+
+.chapter-status-dot {
+	width: 8px;
+	height: 8px;
+	flex: 0 0 8px;
+	border-radius: 999px;
+	background: var(--text-soft);
+}
+
+.chapter-status-dot.is-running {
+	background: var(--teal);
+	box-shadow: 0 0 0 4px rgba(83, 188, 166, 0.1);
+}
+
+.chapter-status-dot.is-completed {
+	background: var(--accent);
+}
+
+.chapter-status-dot.is-paused {
+	background: var(--amber);
+}
+
+.chapter-status-dot.is-failed {
+	background: var(--rose);
+}
+
+.chapter-status-dot.is-pending {
+	background: var(--text-soft);
+}
+
 .reading-entity-panel {
 	position: sticky;
 	overflow: hidden;
@@ -1354,7 +1387,6 @@ button {
 		grid-template-columns: minmax(140px, 0.7fr) minmax(180px, 1fr) max-content;
 		padding: 8px 0;
 	}
-
 }
 
 @media (max-width: 720px) {

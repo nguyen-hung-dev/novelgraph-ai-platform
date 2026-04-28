@@ -126,6 +126,7 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 - [x] Lưu `field_key`, `field_label`, `value`, `confidence`.
 - [x] Lưu evidence span hoặc evidence payload tối thiểu.
 - [x] Lưu provider/model/prompt schema version để debug.
+- [x] Materialize alias map riêng theo job để canonical name và alias có nguồn đọc ổn định ngoài character fields.
 - [x] Ghi event bền vững sau khi dữ liệu trích xuất nhân vật được persist để UI có thể đồng bộ realtime.
 - [ ] Cho phép một chương có nhiều record cùng nhóm lớn.
 - [ ] Cho phép một record có nhiều field nhỏ.
@@ -138,13 +139,16 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 - [x] Chia một chương thành nhiều đoạn nhỏ để giảm lỗi JSON khi gọi local LLM.
 - [x] Với mỗi đoạn nhỏ, tách thành nhiều pass nhỏ thay vì dồn vào một prompt lớn.
 - [x] Pass 1 trích xuất `name` và `aliases`, sau đó ghi bản nháp nhân vật vào DB.
+- [x] Trước Pass 1, chạy pass candidate coverage không chặn pipeline để quét rộng ứng viên nhân vật/alias và đưa vào checklist cho identity pass.
 - [x] Pass 2 đọc nhân vật/alias đã ghi trong DB rồi trích xuất mention offsets cho từng nhân vật.
 - [x] Pass 3 đọc nhân vật/alias đã ghi trong DB rồi trích xuất field/fact nhỏ cho từng nhân vật.
+- [x] Pass 4 đọc danh sách nhân vật canonical trong chương, gọi một relationship candidate pass toàn chương để lấy các cặp có evidence, resolve endpoint về canonical character rồi lưu quan hệ đã grounded.
 - [x] Tắt thinking của llama.cpp trong các pass JSON để model local nhỏ trả `content` trực tiếp.
 - [x] Nếu LLM trả JSON hợp lệ, validate và lưu dữ liệu đã parse.
 - [x] Tự sửa offset mention bằng cách đối chiếu `mention.text` trong đoạn nhỏ; nếu không đối chiếu được thì bỏ riêng mention đó.
 - [x] Quy đổi `start_char` và `end_char` từ offset trong đoạn nhỏ về offset toàn chương trước khi lưu DB.
 - [x] Merge record nhân vật từ nhiều đoạn nhỏ trước khi persist để hạn chế trùng dữ liệu.
+- [x] Lưu quan hệ dưới `group_key = "relationship"` riêng thay vì nhét vào character fields.
 - [x] Đánh dấu `analysis_chapter_runs.status = completed` sau khi lưu parse thành công.
 - [x] Sau khi lưu parse thành công, Reading workspace có đường đồng bộ tự động để thấy highlight mới mà không cần refresh thủ công.
 - [x] Nếu parse lỗi, lưu lỗi vào chapter run và pause job để người dùng thấy.
@@ -157,16 +161,30 @@ Checklist này chỉ dùng cho phần code liên quan đến trích xuất thôn
 - [x] Trước khi tạo record mới, thử merge theo tên canonical trùng khớp tuyệt đối sau normalize.
 - [x] Trước khi tạo record mới, thử merge theo alias trùng khớp tuyệt đối đã có trong DB hoặc working document.
 - [x] Không ghi alias mới nếu alias đó trùng tên canonical của một nhân vật khác đã biết.
-- [ ] Trước khi gọi `sanitize_new_character_identity`, tạo danh sách candidate từ nhân vật đã có trong DB và working document.
-- [ ] Chấm điểm candidate bằng normalize bỏ dấu, token overlap, substring, edit distance và alias overlap.
-- [ ] Chỉ gửi candidate có điểm đủ gần cho LLM xác nhận, không gửi toàn bộ danh sách nhân vật.
-- [ ] RAG cho LLM gồm record hiện có, alias đã biết, mention/context gần nhất và identity mới vừa trích xuất.
-- [ ] LLM phải trả JSON action thuộc một trong ba lựa chọn: `merge_existing`, `create_new`, `ignore`.
-- [ ] Chỉ merge khi LLM xác nhận `merge_existing` với target record cụ thể và có lý do dựa trên evidence.
-- [ ] Nếu LLM trả `create_new`, ghi nhân vật mới như hiện tại.
-- [ ] Nếu LLM trả `ignore`, bỏ identity đó và ghi audit/debug payload để review sau.
+- [x] Trước identity pass, tạo danh sách candidate coverage từ đoạn hiện tại để giảm sót alias/tên gọi khi model local yếu bỏ qua trong pass chính.
+- [x] Bảo toàn evidence của alias khi candidate pass trả được quote và merge vào record nhân vật.
+- [x] Trước khi gọi `sanitize_new_character_identity`, tạo danh sách candidate từ nhân vật đã có trong DB và working document.
+- [x] Chấm điểm candidate bằng normalize bỏ dấu, token overlap, substring, edit distance và alias overlap.
+- [x] Chỉ auto merge khi có đúng một candidate đạt ngưỡng high-confidence; candidate mơ hồ vẫn để riêng cho bước AI confirm sau.
+- [x] Chỉ gửi candidate có điểm đủ gần cho LLM xác nhận, không gửi toàn bộ danh sách nhân vật.
+- [x] RAG cho LLM gồm record hiện có, alias đã biết, score kỹ thuật, current chunk và identity mới vừa trích xuất.
+- [x] LLM phải trả JSON action thuộc một trong ba lựa chọn: `merge_existing`, `create_new`, `ignore`.
+- [x] Chỉ merge khi LLM xác nhận `merge_existing` với confidence đủ cao.
+- [x] Nếu LLM trả `create_new`, ghi nhân vật mới như hiện tại.
+- [x] Nếu LLM trả `ignore` với confidence rất cao, bỏ identity đó và ghi debug payload trong chunk output.
 - [ ] Không hardcode tên truyện, tên nhân vật, quan hệ hoặc ví dụ cụ thể trong logic merge.
 - [ ] Có log/debug output đủ để người dùng kiểm tra vì sao một nhân vật mới được merge hoặc được tạo riêng.
+
+## Bước 5.2 - Alias Map Canonical
+
+- [x] Tạo bảng persisted `story_character_aliases` theo `project_id`, `job_id`, `entity_key`, `alias_key`.
+- [x] Lưu canonical display name như một surface riêng với `alias_type = canonical_name`.
+- [x] Lưu alias từ các field alias đã chuẩn hóa kèm confidence, evidence và chương đầu tiên xuất hiện.
+- [x] Rebuild alias map sau mỗi lần persist extraction để dữ liệu force rerun/range rerun không bị stale.
+- [x] API snapshot trả `character_aliases` cùng `character_records`.
+- [x] Reading info panel ưu tiên alias map persisted và fallback về fields cho dữ liệu cũ.
+- [ ] Chuyển highlight scan sang đọc alias map làm nguồn surface chính.
+- [x] Resolver ưu tiên alias map cho exact alias, high-confidence match và AI-confirm candidate, đồng thời fallback về fields cho dữ liệu cũ.
 
 ## Bước 6 - API Đọc Kết Quả Tối Thiểu
 

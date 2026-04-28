@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { onMount } from 'svelte';
 	import MetricCard from '$lib/components/MetricCard.svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
+	import { connectProjectRealtime } from '$lib/api/realtime';
 	import type { AnalysisRunSnapshot } from '$lib/api/types';
 	import { formatTimestamp, jobStatusTone } from '$lib/workspace/presenters';
 	import type { ActionData, PageData } from './$types';
@@ -17,6 +20,21 @@
 	let runFromChapter = $state('');
 	let runToChapter = $state('');
 	let rangeDefaultsKey = $state('');
+
+	onMount(() => {
+		if (!browser) {
+			return;
+		}
+
+		return connectProjectRealtime(data.workspace.project.id, (event) => {
+			if (event.event_type === 'connected') {
+				return;
+			}
+			if (document.visibilityState === 'visible') {
+				void invalidateAll();
+			}
+		});
+	});
 
 	type RunRequestContext = {
 		endpoint: string;
@@ -85,14 +103,6 @@
 	const cancelJobOk = $derived(
 		Boolean(form?.cancelJob && 'ok' in form.cancelJob && form.cancelJob.ok)
 	);
-
-	function chapterStatusTone(status: string) {
-		if (status === 'completed') return 'good';
-		if (status === 'running') return 'teal';
-		if (status === 'failed') return 'danger';
-		if (status === 'paused') return 'warning';
-		return 'neutral';
-	}
 
 	function metricToneForJobStatus(status: string) {
 		if (status === 'completed') return 'accent';
@@ -422,52 +432,5 @@
 			{/if}
 		</Panel>
 	</section>
-
-	<Panel subtitle="Chapter-level run state" title="Chapter progress">
-		{#if currentRun && currentRun.chapters.length > 0}
-			<table class="table">
-				<thead>
-					<tr>
-						<th>Chapter</th>
-						<th>Status</th>
-						<th>Attempt</th>
-						<th>Updated</th>
-						<th>Note</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each currentRun.chapters as chapter (chapter.chapter_id)}
-						<tr>
-							<td>
-								<div class="nav-link__title">#{chapter.chapter_num} · {chapter.title}</div>
-								<div class="nav-link__meta">{chapter.chapter_id}</div>
-							</td>
-							<td>
-								<StatusPill label={chapter.status} tone={chapterStatusTone(chapter.status)} />
-							</td>
-							<td>{chapter.attempt ?? '-'}</td>
-							<td>{chapter.updated_at ? formatTimestamp(chapter.updated_at) : '-'}</td>
-							<td>
-								{#if chapter.error_message}
-									<span class="nav-link__meta">{chapter.error_message}</span>
-								{:else if chapter.prompt_schema_version}
-									<span class="nav-link__meta">{chapter.prompt_schema_version}</span>
-								{:else}
-									<span class="nav-link__meta">Chưa chạy.</span>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		{:else if data.analysisRunError}
-			<div class="warning-box">
-				<div class="nav-link__title">Không thể nạp chapter progress</div>
-				<div class="nav-link__meta">{data.analysisRunError}</div>
-			</div>
-		{:else}
-			<div class="empty-note">Chưa có chapter nào để phân tích.</div>
-		{/if}
-	</Panel>
 
 </div>

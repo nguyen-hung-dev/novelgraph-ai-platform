@@ -9,6 +9,7 @@ Các checklist trong thư mục này dùng Markdown task list để theo dõi ti
 - [ ] Khi hoàn thành một task, cập nhật trực tiếp checkbox trong file.
 - [ ] Khi phát sinh quyết định kiến trúc lớn, tạo thêm ADR trong `docs/adr/`.
 - [ ] Khi thay đổi hướng triển khai, cập nhật `ROADMAP.md`, `docs/implementation-plan.md` và checklist liên quan.
+- [ ] Khi file viết tay chạm soft limit 800 dòng hoặc hard limit 1200 dòng, mở [11-module-refactor-checklist.md](11-module-refactor-checklist.md) trước khi thêm logic mới.
 
 ## Danh Sách Checklist
 
@@ -23,3 +24,4 @@ Các checklist trong thư mục này dùng Markdown task list để theo dõi ti
 - [ ] [08-release-readiness-checklist.md](08-release-readiness-checklist.md)
 - [ ] [09-translation-parallel-checklist.md](09-translation-parallel-checklist.md)
 - [ ] [10-major-group-extraction-checklist.md](10-major-group-extraction-checklist.md)
+- [ ] [11-module-refactor-checklist.md](11-module-refactor-checklist.md)
