@@ -4,7 +4,7 @@ Desktop-style AI novel analysis for the web and local desktop.
 
 [Vietnamese README](README.vi.md)
 
-Current foundation version: `0.12.0`.
+Current foundation version: `0.13.0`.
 
 ## License
 

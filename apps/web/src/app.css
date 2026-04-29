@@ -1012,6 +1012,77 @@ button {
 	background: rgba(255, 255, 255, 0.03);
 }
 
+.relationship-list {
+	gap: 8px;
+}
+
+.relationship-row {
+	display: grid;
+	gap: 8px;
+}
+
+.relationship-row-main {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 12px;
+}
+
+.relationship-summary-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px;
+	min-width: 0;
+}
+
+.inline-character-link {
+	display: inline;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--accent-strong);
+	font: inherit;
+	line-height: inherit;
+	text-align: inherit;
+	cursor: pointer;
+}
+
+.inline-character-link:hover,
+.inline-character-link:focus-visible {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.relationship-evidence-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-self: end;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--text-soft);
+	font: inherit;
+	line-height: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.relationship-evidence-toggle:hover,
+.relationship-evidence-toggle:focus-visible {
+	color: var(--text);
+}
+
+.relationship-evidence-panel {
+	width: 100%;
+	justify-self: end;
+	min-width: 0;
+	text-align: left;
+}
+
 .reading-copy {
 	display: grid;
 	gap: 14px;

@@ -25,3 +25,5 @@ Các checklist trong thư mục này dùng Markdown task list để theo dõi ti
 - [ ] [09-translation-parallel-checklist.md](09-translation-parallel-checklist.md)
 - [ ] [10-major-group-extraction-checklist.md](10-major-group-extraction-checklist.md)
 - [ ] [11-module-refactor-checklist.md](11-module-refactor-checklist.md)
+- [ ] [12-llm-cloud-gemini-checklist.md](12-llm-cloud-gemini-checklist.md)
+- [ ] [13-world-model-bootstrap-checklist.md](13-world-model-bootstrap-checklist.md)

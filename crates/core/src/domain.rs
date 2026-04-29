@@ -85,6 +85,28 @@ pub struct AnalysisChapterRun {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisExecutionProfile {
+    LocalSmallStaged,
+    CloudGeminiOneShot,
+}
+
+impl AnalysisExecutionProfile {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::LocalSmallStaged => "local_small_staged",
+            Self::CloudGeminiOneShot => "cloud_gemini_one_shot",
+        }
+    }
+}
+
+impl Default for AnalysisExecutionProfile {
+    fn default() -> Self {
+        Self::LocalSmallStaged
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AnalysisChapterState {
     pub chapter_id: String,
     pub chapter_num: i64,
@@ -98,6 +120,15 @@ pub struct AnalysisChapterState {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub updated_at: Option<String>,
+    pub execution_profile: Option<String>,
+    pub call_status: Option<String>,
+    pub api_call_count: Option<i64>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub estimated_cost: Option<f64>,
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -122,6 +153,8 @@ pub struct AnalysisRunStepInput {
     pub force: bool,
     pub from_chapter_num: Option<i64>,
     pub to_chapter_num: Option<i64>,
+    #[serde(default)]
+    pub execution_profile: Option<AnalysisExecutionProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

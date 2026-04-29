@@ -72,7 +72,7 @@ Health response shape:
 {
   "status": "ok",
   "app_mode": "web",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "api_version": "v0",
   "storage_schema_version": "2026-04-29.foundation.v9"
 }

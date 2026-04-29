@@ -8,18 +8,18 @@ mod routes;
 mod services;
 pub(crate) use errors::ApiError;
 use local_runtime::LocalLlmRuntimeManager;
-use novelgraph_ai::LlamaCppClient;
+use novelgraph_ai::{GeminiProvider, LlamaCppClient};
 use novelgraph_core::{
     build_character_alias_ownership_prompt, build_character_candidate_prompt,
     build_character_field_value_verification_prompt, build_character_fields_prompt,
     build_character_identity_creation_review_prompt,
     build_character_identity_merge_confirmation_prompt, build_character_identity_prompt,
     build_character_occurrence_confirmation_prompt, build_character_relationship_candidate_prompt,
-    build_character_relationship_verification_prompt, AnalysisRunSnapshot, AnalysisRunStepInput,
-    AppConfig, Chapter, DraftExtractionInput, Novel, StoryCharacterAliasView,
-    StoryCharacterMention, StoryEvidenceSpan, StoryExtractionDocument, StoryExtractionFieldPayload,
-    StoryExtractionFieldValuePayload, StoryExtractionRecordPayload, StoryExtractionRecordView,
-    CHARACTER_EXTRACTION_SCHEMA_VERSION,
+    build_character_relationship_verification_prompt, AnalysisExecutionProfile,
+    AnalysisRunSnapshot, AnalysisRunStepInput, AppConfig, Chapter, DraftExtractionInput, Novel,
+    StoryCharacterAliasView, StoryCharacterMention, StoryEvidenceSpan, StoryExtractionDocument,
+    StoryExtractionFieldPayload, StoryExtractionFieldValuePayload, StoryExtractionRecordPayload,
+    StoryExtractionRecordView, CHARACTER_EXTRACTION_SCHEMA_VERSION,
 };
 use novelgraph_storage::SqliteStore;
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub store: SqliteStore,
     pub local_llm: LlamaCppClient,
+    pub gemini: GeminiProvider,
     pub local_runtime: LocalLlmRuntimeManager,
     realtime_tx: broadcast::Sender<ProjectRealtimeEvent>,
 }
@@ -91,6 +92,7 @@ pub fn build_router(
     config: AppConfig,
     store: SqliteStore,
     local_llm: LlamaCppClient,
+    gemini: GeminiProvider,
     local_runtime: LocalLlmRuntimeManager,
 ) -> Router {
     let (realtime_tx, _) = broadcast::channel(256);
@@ -98,6 +100,7 @@ pub fn build_router(
         config,
         store,
         local_llm,
+        gemini,
         local_runtime,
         realtime_tx,
     };

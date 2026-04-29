@@ -8,6 +8,7 @@ pub(crate) async fn run_next_analysis_chapter(
     job_id: &str,
     input: AnalysisRunStepInput,
 ) -> Result<AnalysisRunSnapshot, ApiError> {
+    let execution_profile = input.execution_profile.clone().unwrap_or_default();
     let step_ready =
         match services::analysis_step::prepare_analysis_step(state, project_id, job_id, &input)
             .await?
@@ -17,6 +18,16 @@ pub(crate) async fn run_next_analysis_chapter(
             }
             services::analysis_step::AnalysisStepPreflight::Ready(ready) => ready,
         };
+    if execution_profile == AnalysisExecutionProfile::CloudGeminiOneShot {
+        return services::analysis_pipeline_cloud::run_cloud_gemini_one_shot(
+            state,
+            project_id,
+            job_id,
+            execution_profile,
+            step_ready,
+        )
+        .await;
+    }
     let novel = step_ready.novel;
     let chapters = step_ready.chapters;
     let chapter = step_ready.chapter;

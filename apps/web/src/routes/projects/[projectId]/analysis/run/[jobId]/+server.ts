@@ -40,6 +40,7 @@ export const POST: RequestHandler = async ({ fetch, params, request }) => {
 		force?: boolean;
 		from_chapter_num?: number;
 		to_chapter_num?: number;
+		execution_profile?: 'local_small_staged' | 'cloud_gemini_one_shot';
 	};
 
 	try {
@@ -55,7 +56,8 @@ export const POST: RequestHandler = async ({ fetch, params, request }) => {
 			await stepAnalysisRun(fetch, projectId, jobId, {
 				force: Boolean(body.force),
 				from_chapter_num: body.from_chapter_num,
-				to_chapter_num: body.to_chapter_num
+				to_chapter_num: body.to_chapter_num,
+				execution_profile: body.execution_profile
 			})
 		);
 	} catch (err) {

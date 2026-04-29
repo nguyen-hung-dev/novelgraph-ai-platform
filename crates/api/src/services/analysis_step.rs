@@ -1,5 +1,6 @@
 use novelgraph_core::{
-    AnalysisChapterRun, AnalysisRunSnapshot, AnalysisRunStepInput, Chapter, Novel,
+    AnalysisChapterRun, AnalysisExecutionProfile, AnalysisRunSnapshot, AnalysisRunStepInput,
+    Chapter, Novel,
 };
 use novelgraph_storage::SqliteStore;
 
@@ -28,6 +29,7 @@ pub(crate) async fn prepare_analysis_step(
     job_id: &str,
     input: &AnalysisRunStepInput,
 ) -> Result<AnalysisStepPreflight, ApiError> {
+    let execution_profile = input.execution_profile.clone().unwrap_or_default();
     let chapter_range = analysis::chapter_range_from_input(input)?;
     if input.force {
         if let Some(range) = chapter_range {
@@ -107,36 +109,39 @@ pub(crate) async fn prepare_analysis_step(
         return Ok(AnalysisStepPreflight::Snapshot(snapshot));
     }
 
-    let health = state.local_llm.health().await?;
-    if !health.reachable {
-        let reason = format!(
-            "Local llama.cpp không reachable: {}",
-            health
-                .status_text
-                .unwrap_or_else(|| "request failed".to_string())
-        );
-        state
-            .store
-            .pause_analysis_job(
+    if execution_profile == AnalysisExecutionProfile::LocalSmallStaged {
+        let health = state.local_llm.health().await?;
+        if !health.reachable {
+            let reason = format!(
+                "Local llama.cpp không reachable: {}",
+                health
+                    .status_text
+                    .unwrap_or_else(|| "request failed".to_string())
+            );
+            state
+                .store
+                .pause_analysis_job(
+                    project_id,
+                    job_id,
+                    &reason,
+                    Some("local_llm_unreachable"),
+                    true,
+                )
+                .await?;
+            publish_project_event(
+                state,
                 project_id,
-                job_id,
-                &reason,
-                Some("local_llm_unreachable"),
-                true,
-            )
-            .await?;
-        publish_project_event(
-            state,
-            project_id,
-            "analysis_paused",
-            Some(job_id),
-            None,
-            "local LLM unreachable",
-        );
+                "analysis_paused",
+                Some(job_id),
+                None,
+                "local LLM unreachable",
+            );
 
-        let snapshot =
-            analysis::build_run_snapshot(&state.store, project_id, job_id, Some(reason)).await?;
-        return Ok(AnalysisStepPreflight::Snapshot(snapshot));
+            let snapshot =
+                analysis::build_run_snapshot(&state.store, project_id, job_id, Some(reason))
+                    .await?;
+            return Ok(AnalysisStepPreflight::Snapshot(snapshot));
+        }
     }
 
     let chapter = analysis::next_chapter(&chapters, &runs, chapter_range)

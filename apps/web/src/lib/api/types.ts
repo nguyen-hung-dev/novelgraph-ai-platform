@@ -57,6 +57,15 @@ export type AnalysisChapterState = {
 	started_at: string | null;
 	finished_at: string | null;
 	updated_at: string | null;
+	execution_profile: string | null;
+	call_status: string | null;
+	api_call_count: number | null;
+	provider: string | null;
+	model: string | null;
+	input_tokens: number | null;
+	output_tokens: number | null;
+	estimated_cost: number | null;
+	trace_id: string | null;
 };
 
 export type AnalysisRunSnapshot = {

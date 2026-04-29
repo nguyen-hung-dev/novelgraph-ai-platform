@@ -1,0 +1,281 @@
+Báo cáo audit trích xuất ngữ nghĩa - Gemini cloud one-shot
+Ngày: 2026-04-30
+Project: proj_019dda1cac2279c2b1dd6f2c3c9d871f
+Tên project: Nguyễn Quốc Hưng G
+Novel: novel_019dda1cdcfc7f938b3b4a00378ea527
+Analysis job: job_019dda1cdcfc7f938b3b4a113f240177
+Phạm vi audit: chương 1 -> 5
+Schema: story_chapter_cloud_extraction.v2
+
+1. Ảnh chụp trạng thái
+
+- Trạng thái job: paused
+- Thông báo job: Đã chạy xong phạm vi chương 1 -> 5.
+- Các chương đã completed: 1, 2, 3, 4, 5
+- Call profile: cloud_gemini_one_shot
+- Số call API: 1 call mỗi chương
+- Số record:
+  - Chương 1: 11 character records, 10 relationship records
+  - Chương 2: 6 character records, 5 relationship records
+  - Chương 3: 7 character records, 4 relationship records
+  - Chương 4: 6 character records, 4 relationship records
+  - Chương 5: 13 character records, 17 relationship records
+- Số suspect lấy từ output_json:
+  - Chương 1: 0 suspect, 8 review items
+  - Chương 2: 0 suspect, 3 review items
+  - Chương 3: 5 suspect, 8 review items
+  - Chương 4: 0 suspect, 3 review items
+  - Chương 5: 6 suspect, 1 review item
+
+2. Điểm tốt
+
+- Phạm vi evidence theo chương đang đúng. Không thấy entry nào trong story_extraction_values.evidence_json có chapter_num khác với chapter_num của record.
+- Output ngoại hình sau lần rerun mới đã gọn hơn. Không tìm thấy appearance value dài hơn 45 ký tự trong snapshot hiện tại.
+- Quan hệ của Tam thúc không còn bị tách thành nhiều biến thể "chú / chú của / chú ruột / chú ruột của" trong DB mới nhất. Hiện đã gom về "chú ruột" và "cháu trai" theo từng chương.
+- Alias xuyên chương tương đối ổn với các identity rõ ràng:
+  - Hàn Lập: Hàn Lập, Anh ngố, Tiểu Lập
+  - Tam thúc: Tam thúc, Lão Hàn, Lão Hàn mập, Hàn béo mập, lão Hàn béo
+  - Thất huyền môn: Thất huyền môn, Thất tuyệt môn
+
+3. Lỗi ngữ nghĩa rủi ro cao
+
+3.1. Cụm vai trò / generic surface vẫn bị lưu thành character record
+
+Ví dụ trong character records:
+- Đại ca
+- Tỷ tỷ
+- Tiểu muội muội
+- Sư huynh
+- Lão thợ rèn
+- Hàn mẫu
+- Hàn phụ
+- Huyền phu nhân
+
+Một số node kiểu này có thể hữu ích trong truyện, nhưng chúng không phải tên riêng của một cá nhân đã được định danh rõ. Khi lưu chúng như canonical character node, nguy cơ merge nhầm ở các chương sau rất cao. DB hiện đã có một lỗi cụ thể:
+
+- Chương 3 lưu "Lão thợ rèn <-> Đại ca" là quan hệ huyết thống, label "cha / con trai".
+- Evidence: "con lão thợ rèn trong làng".
+- Ngữ cảnh: Hàn Lập đang mơ thấy mình đánh "con lão thợ rèn trong làng", kẻ ngày trước hắn không đánh nổi.
+- Vấn đề: nhân vật này không phải Đại ca của Hàn Lập. Ở chương 1, Đại ca chỉ được giới thiệu là đi theo một lão thợ rèn trong thành để học việc. Cụm "con lão thợ rèn" ở chương 3 là một đứa trẻ generic khác.
+- Nguyên nhân gốc: model đã gắn một cụm generic vào node "Đại ca" có sẵn.
+
+Tác động:
+- Khi node vai trò/generic đã tồn tại, các surface generic về sau rất dễ bị attach nhầm vào nó.
+- Việc này làm bẩn relationship graph và alias map.
+
+Đề xuất thay đổi:
+- Prompt: các cụm vai trò gia đình/xã hội chỉ nên là relationship label hoặc review_item, không nên là character node nếu chưa được định danh rõ.
+- Backend: thêm cloud character persistence gate thận trọng hơn:
+  - nếu entity_nature là role_title hoặc temporary_reference thì tiếp tục reject như hiện tại;
+  - thêm điều kiện cho các role-like records: chỉ persist nếu có tên riêng ổn định hoặc evidence lặp lại đủ rõ;
+  - nếu còn mơ hồ, chuyển sang suspect/review thay vì lưu canonical node.
+- Dài hạn: thêm class riêng "unnamed_character" hoặc "role_reference" nếu muốn theo dõi vai trò gia đình mà không coi chúng là canonical named people.
+
+3.2. Relationship extraction đang quá dễ tạo quan hệ từ evidence yếu hoặc một cảnh tạm thời
+
+Ví dụ đáng ngờ:
+
+- Chương 4: Hàn Lập <-> Vũ Nham, relationship_type doi_thu, label đối thủ.
+  Evidence gồm:
+  - "Bây giờ trèo cao nhất là Vũ Nham."
+  - Hàn Lập thấy Vũ Nham ở phía trước trong bài thi leo núi.
+  - Vũ Nham làm động tác ngón cái quay xuống và cười lớn.
+  Đánh giá: đây là căng thẳng/cạnh tranh trong một cảnh, chưa đủ là quan hệ đối thủ ổn định. Nên đưa vào review_item hoặc temporary_interaction, trừ khi chương sau xác nhận rival ổn định.
+
+- Chương 5: Hàn Lập <-> Mặc đại phu và Mặc đại phu <-> Trương Thiết, relationship_type su_do.
+  Evidence: "hai người này theo ta đi nào."
+  Đánh giá: đây là mệnh lệnh/phân công. Có thể sau này thành thầy trò, nhưng quote này một mình chưa đủ mạnh để persist quan hệ sư đồ ổn định.
+
+- Chương 5: Mặc đại phu <-> Ngô Minh Thụy, relationship_type cap_tren_cap_duoi.
+  Evidence: "Vị cao gầy sư huynh Ngô Minh thậm chí còn bợ đỡ lão giả này."
+  Đánh giá: hành vi bợ đỡ/kính nể người lớn tuổi không chứng minh quan hệ cấp trên/cấp dưới trực tiếp.
+
+- Chương 5: Mặc đại phu <-> Trương Quân, relationship_type cap_tren_cap_duoi.
+  Evidence: "Mặc đại phu, lão nhân gia ngài hảo, có chuyện gì xin ngài cứ phân phó đệ tử."
+  Đánh giá: đây là lời nói kính trọng. Có thể thể hiện hierarchy trong môn phái, nhưng chưa đủ để tạo edge trực tiếp nếu schema chưa phân biệt mức suy luận.
+
+- Chương 3: Nhạc đường chủ <-> Vương hộ pháp, relationship_type cap_tren_cap_duoi.
+  Evidence gồm "Vương lão đệ" và lời xin lỗi/lệnh.
+  Đánh giá: khả năng đúng, nhưng vẫn là suy luận. Chỉ nên evidence_strength=explicit nếu quote có title/lệnh/phục tùng đủ rõ.
+
+Đề xuất thay đổi:
+- Prompt: "thi đấu tạm thời, mệnh lệnh một cảnh, lời chào, kính ngữ, bợ đỡ, cùng xuất hiện, hộ tống, phân công nhiệm vụ không phải quan hệ ổn định."
+- Prompt: "Chỉ tạo relationship mới khi quote nói rõ vai trò ổn định, cấp bậc, huyết thống, thành viên tổ chức, hôn nhân, sư đồ, hoặc quan hệ xã hội dài hạn."
+- Schema: thêm evidence_strength cho relationships:
+  - explicit
+  - inferred
+  - weak
+  Chỉ persist explicit; inferred/weak chuyển sang review_items.
+- Backend: reject hoặc chuyển suspect nếu relationship_scope là stable_relationship nhưng evidence_strength không phải explicit.
+
+3.3. Known relationship hints chưa đủ mạnh để chặn label drift
+
+Ví dụ:
+- Chương 1: Tam thúc <-> Thất huyền môn là "đệ tử ngoại môn / môn phái".
+- Chương 2: cùng pair/type thanh_vien lại xuất hiện "người liên hệ / môn phái".
+- Evidence chương 2 cho thấy Tam thúc có thể liên hệ/tiến cử Hàn Lập với nội môn, nhưng không nên thay thế hoặc thêm biến thể yếu hơn cho quan hệ ổn định đã có.
+
+Đề xuất thay đổi:
+- Prompt: nếu đã có known relationship cùng pair và cùng type, reuse canonical labels trước đó trừ khi quote hiện tại nói rõ quan hệ đã thay đổi.
+- Backend: khi build cloud relationship records, canonicalize labels theo prior known relationship hints cho cùng pair/type. Evidence chương hiện tại có thể append, nhưng label không nên drift sang synonym yếu như "người liên hệ".
+
+3.4. Quan hệ tổ chức/thành viên đang được persist từ title-only hoặc evidence yếu
+
+Ví dụ:
+- Thất huyền môn <-> Vương hộ pháp có evidence chỉ là "Vương hộ pháp".
+- Nhạc đường chủ <-> Thất huyền môn có evidence chỉ là "Nhạc đường chủ".
+- Thất huyền môn <-> Vương hộ pháp ở chương 5 dùng "Vương hộ pháp bước ra, khom người lĩnh mệnh".
+
+Đánh giá:
+- Title như "hộ pháp" và "đường chủ" gợi ý role tổ chức rất mạnh, nhưng title-only evidence không lý tưởng để persist graph.
+- Nếu app coi title là role canonical, schema nên nói rõ. Nếu không, các edge này nên có confidence thấp hơn hoặc vào review.
+
+Đề xuất thay đổi:
+- Prompt/schema: phân biệt role-title evidence với explicit membership evidence.
+- Backend: với organization_hierarchy / membership edge, yêu cầu một trong hai điều kiện:
+  - quote cùng evidence có nhắc rõ tổ chức;
+  - hoặc đã có known prior canonical organization-role mapping.
+
+4. Lỗi field / ngoại hình mức trung bình
+
+4.1. Trạng thái tạm thời của cảnh vẫn lọt vào appearance fields
+
+Ví dụ:
+- Chương 4, Hàn Lập: "hai tay nham nhở vết thương", "da thịt lộ ra không ít vết thương".
+- Chương 4, Hàn Lập: "y phục gọn ghẽ" từ câu "Do y phục gọn ghẽ, cho nên việc di chuyển cũng bớt khó khăn."
+- Chương 4, Sư huynh: "trên thân không có lấy một giọt mồ hôi".
+- Chương 4, Vũ Nham: "lớn hơn Hàn Lập một tuổi".
+- Chương 3, Vũ Nham: "đứa trẻ lớn tuổi nhất".
+
+Đánh giá:
+- Một số là thông tin nhìn thấy được, nhưng chúng là scene-state hoặc comparative fact, không phải profile ngoại hình ổn định.
+- Prompt hiện đã nói không persist temporary scene state, nhưng Gemini vẫn coi chúng là appearance.
+
+Đề xuất thay đổi:
+- Prompt: appearance value phải là mô tả ổn định/tái sử dụng được của nhân vật. Vết thương tạm thời, mồ hôi, tư thế, quần áo phục vụ tình huống hiện tại, hư hại quần áo trong cảnh, và so sánh thứ hạng tuổi nên vào review_items.
+- Schema: thêm field_stability:
+  - stable_profile
+  - current_scene
+  - uncertain
+  Chỉ persist stable_profile mặc định.
+- Backend: nếu field_stability là current_scene, không lưu vào character profile; hoặc lưu ở group riêng "chapter_observation".
+
+4.2. Appearance values hiện đã gọn, nhưng phụ thuộc rerun
+
+Snapshot DB hiện tại không còn các field value raw quá dài như trước. Ví dụ value gọn:
+- "áo bông cũ ố vàng, mùi ẩm mốc"
+- "da tay đen đúa"
+- "mười tuổi"
+- "mặt tròn"
+- "bộ râu quai nón"
+
+Đề xuất thay đổi:
+- Giữ rule prompt mới: field value là nhãn hiển thị ngắn; evidence_quotes giữ raw source wording.
+- Thêm backend safety net: nếu value_text quá dài hoặc quá nhiều dấu phẩy/mệnh đề, chuyển sang suspect/review thay vì lưu thành display field.
+
+5. Vấn đề alias
+
+5.1. Alias đang được persist confidence 1.0 nhưng evidence_json rỗng
+
+Ví dụ:
+- Hàn Lập -> Anh ngố, Tiểu Lập
+- Tam thúc -> Lão Hàn, Lão Hàn mập, Hàn béo mập
+- Mặc đại phu -> Mặc lão, Mặc phu
+- Thất tuyệt đường -> Thất tuyện đường
+
+Đánh giá:
+- Nhiều alias có vẻ đúng, nhưng evidence_json rỗng ở alias rows và alias field values.
+- Điều này làm khó audit vì không biết alias được chấp nhận từ quote nào.
+
+Đề xuất thay đổi:
+- Preserve alias evidence quotes và offsets trong alias values và story_character_aliases.
+- Không tự động set confidence 1.0 cho alias trừ khi model trả evidence rõ và backend map được vào text chương hiện tại.
+
+5.2. Một số alias là typo/address form, nên confidence thấp hơn hoặc vào review
+
+Ví dụ:
+- "Mặc phu" cho Mặc đại phu có thể là dạng cắt/trích sai từ "Mặc phu ngài", chưa chắc là alias ổn định.
+- "Vương lão đệ" là cách xưng hô, không nhất thiết là stable alias.
+- "Thất tuyện đường" là typo variant của "Thất tuyệt đường"; hữu ích cho matching, nhưng nên type là typo_variant, không phải other_alias thường.
+
+Đề xuất thay đổi:
+- Thêm alias_type:
+  - canonical_name
+  - stable_alias
+  - address_form
+  - typo_variant
+  - title
+- Reading highlight có thể dùng typo_variant/address_form, nhưng canonical identity merge phải thận trọng hơn với các type này.
+
+6. Vấn đề mật độ graph
+
+Chương 5 tạo 17 relationship records, cao hơn rõ so với các chương trước. Nhiều edge được suy ra từ một cảnh, title, phân công, kính ngữ hoặc cùng xuất hiện. Đây là regression chất lượng lớn nhất trong test 5 chương.
+
+Đề xuất thay đổi:
+- Thêm relationship budget / quality gate theo chương:
+  - quan hệ ổn định chính: persist;
+  - quan hệ suy luận yếu: review_items;
+  - tương tác tạm thời: ignore hoặc chapter_observation.
+- Thêm telemetry counts:
+  - relationships_requested_by_model
+  - relationships_persisted
+  - relationships_moved_to_review
+  - relationships_rejected_by_gate
+
+7. Checklist triển khai đề xuất
+
+Phase 1 - Hotfix bằng prompt
+
+- Cập nhật crates/core/src/prompts/story_chapter_cloud_extraction_v2/user.md:
+  - siết chặt rule reject role-only character;
+  - cấm family/social role generic làm canonical character nếu chưa uniquely named/individuated;
+  - cấm one-scene rivalry, command, greeting, flattery, co-presence, task assignment thành stable relationship;
+  - yêu cầu explicit stable-relation phrase mới tạo relationship mới;
+  - yêu cầu reuse known relationship label cho cùng pair/type;
+  - siết rule stable appearance so với temporary scene observation.
+- Rerun chương 1 -> 5 và so sánh:
+  - relationship count phải giảm, đặc biệt chương 5;
+  - "Lão thợ rèn <-> Đại ca" huyết thống phải biến mất;
+  - "Hàn Lập <-> Vũ Nham" đối thủ phải chuyển review trừ khi có evidence explicit hơn;
+  - "Mặc đại phu <-> Hàn Lập/Trương Thiết" sư đồ không được persist chỉ từ câu "theo ta đi nào".
+
+Phase 2 - Siết schema
+
+- Cập nhật response_schema.json:
+  - relationship.evidence_strength: explicit | inferred | weak
+  - relationship.relationship_status: new | prior_evidence | changed
+  - field.field_stability: stable_profile | current_scene | uncertain
+  - alias.alias_type hoặc alias object thay vì aliases[] chỉ là chuỗi
+- Cập nhật structs CloudRelationship / CloudCharacterField tương ứng.
+
+Phase 3 - Backend write gates
+
+- Cập nhật crates/api/src/services/analysis_pipeline_cloud.rs:
+  - reject hoặc review relationships có evidence_strength != explicit;
+  - canonicalize labels bằng prior known relationship hints cho cùng pair/type;
+  - reject generic role-only character records không đủ grounded;
+  - chuyển current_scene appearance fields sang review hoặc group riêng chapter_observation;
+  - preserve alias evidence trong story_character_aliases;
+  - thêm length/comma safety gate cho field.value display labels.
+
+Phase 4 - UI và audit hỗ trợ
+
+- Hiển thị suspect_items/review_items trong Analysis UI theo từng chương.
+- Thêm DB audit command/script để flag:
+  - role-only canonical characters;
+  - relationship evidence chỉ có title-only quotes;
+  - relationship_type từ weak evidence;
+  - appearance fields có vẻ temporary;
+  - alias rows có evidence_json rỗng;
+  - field.value vượt ngưỡng label ngắn.
+
+8. Acceptance criteria cho lần rerun 5 chương tiếp theo
+
+- Không có evidence chapter_num mismatch.
+- Không có appearance value dài hơn 60 ký tự.
+- Alias rows có evidence_json khi được tạo từ text chương hiện tại.
+- Relationship count chương 5 giảm rõ rệt, hoặc weak edges hiển thị thành review_items thay vì persisted records.
+- "Lão thợ rèn <-> Đại ca" huyết thống không được persist.
+- "Hàn Lập <-> Vũ Nham" không được persist thành stable đối thủ từ một cảnh thi leo núi.
+- "Mặc đại phu <-> Hàn Lập" và "Mặc đại phu <-> Trương Thiết" chỉ persist thành sư đồ khi có evidence explicit về nhận thầy/trò.
+- Prior relationship labels không drift sang biến thể yếu khi pair/type đã tồn tại.

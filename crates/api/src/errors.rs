@@ -84,6 +84,26 @@ impl From<AiError> for ApiError {
                 code: "local_llm_http_error",
                 message: format!("local LLM returned HTTP {status}: {message}"),
             },
+            AiError::ProviderConfig(message) => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "provider_config_error",
+                message,
+            },
+            AiError::ProviderRequest(message) => Self {
+                status: StatusCode::BAD_GATEWAY,
+                code: "provider_request_failed",
+                message,
+            },
+            AiError::ProviderHttpStatus { status, message } => Self {
+                status: StatusCode::BAD_GATEWAY,
+                code: "provider_http_error",
+                message: format!("provider returned HTTP {status}: {message}"),
+            },
+            AiError::StructuredOutput(message) => Self {
+                status: StatusCode::BAD_GATEWAY,
+                code: "provider_structured_output_invalid",
+                message,
+            },
         }
     }
 }

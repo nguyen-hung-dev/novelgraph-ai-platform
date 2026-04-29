@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { invalidateAll } from '$app/navigation';
-	import { ALargeSmall, RotateCcw, Settings, X } from 'lucide-svelte';
+	import { ALargeSmall, ChevronDown, ChevronRight, RotateCcw, Settings, X } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
@@ -25,6 +25,12 @@
 	let showAiHighlights = $state(true);
 	let fontSizePx = $state(15);
 	let lineHeightValue = $state(1.65);
+	let openRelationshipEvidenceKeys = $state<Record<string, boolean>>({});
+
+	const readingCharacterCopy = {
+		relationshipsTitle: 'Quan hệ',
+		evidenceSummary: 'Bằng chứng'
+	} as const;
 
 	const readingSizePresets = {
 		small: { fontSizePx: 14, lineHeightValue: 1.55 },
@@ -113,11 +119,30 @@
 	const activeParagraphBlocks = $derived(
 		activeChapter ? buildReadingParagraphBlocks(activeChapter.content, activeChapter.title) : []
 	);
-	const activeCharacterRecords = $derived(
+	const visibleCharacterRecords = $derived(
 		activeChapter
 			? data.workspace.character_records.filter(
-					(record) => record.chapter_num === activeChapter.chapter_num
+					(record) => record.chapter_num <= activeChapter.chapter_num
 				)
+			: []
+	);
+	const visibleRelationshipRecords = $derived(
+		activeChapter
+			? data.workspace.relationship_records.filter(
+					(record) => record.chapter_num <= activeChapter.chapter_num
+				)
+			: []
+	);
+	const visibleCharacterAliases = $derived(
+		activeChapter
+			? data.workspace.character_aliases.filter(
+					(alias) => alias.first_chapter_num <= activeChapter.chapter_num
+				)
+			: []
+	);
+	const activeCharacterRecords = $derived(
+		activeChapter
+			? visibleCharacterRecords.filter((record) => record.chapter_num === activeChapter.chapter_num)
 			: []
 	);
 	const analysisStatusByChapterId = $derived(
@@ -130,7 +155,7 @@
 			? buildHighlightMentions(
 					activeCharacterRecords,
 					activeChapter.content,
-					data.workspace.character_aliases
+					visibleCharacterAliases
 				)
 			: []
 	);
@@ -141,14 +166,14 @@
 	);
 	const selectedCharacterRecords = $derived(
 		selectedCharacterIdentityKey
-			? data.workspace.character_records
+			? visibleCharacterRecords
 					.filter((record) => characterRecordIdentityKey(record) === selectedCharacterIdentityKey)
 					.sort(compareCharacterRecordsByChapter)
 			: []
 	);
 	const selectedCharacterAliases = $derived(
 		selectedCharacterIdentityKey
-			? data.workspace.character_aliases
+			? visibleCharacterAliases
 					.filter((alias) => characterAliasIdentityKey(alias) === selectedCharacterIdentityKey)
 					.filter((alias) => isStableReadingAliasSurface(alias.alias_text))
 					.sort(compareCharacterAliasesByFirstSeen)
@@ -169,12 +194,12 @@
 				? buildCharacterAliasSummariesFromAliasMap(
 						selectedCharacterAliases,
 						selectedCharacterRecords,
-						data.workspace.character_records,
+						visibleCharacterRecords,
 						selectedCharacterRecord
 					)
 				: buildCharacterAliasSummaries(
 						selectedCharacterRecords,
-						data.workspace.character_records,
+						visibleCharacterRecords,
 						selectedCharacterRecord
 					)
 			: []
@@ -186,8 +211,8 @@
 		selectedCharacterRecord
 			? buildCharacterRelationshipSummaries(
 					selectedCharacterRecord,
-					data.workspace.character_records,
-					data.workspace.relationship_records
+					visibleCharacterRecords,
+					visibleRelationshipRecords
 				)
 			: []
 	);
@@ -375,7 +400,16 @@
 	type CharacterRelationshipSummary = {
 		related_name: string;
 		label: string;
-		evidence_quote: string | null;
+		record_key: string | null;
+		evidence: Array<{
+			chapter_num: number;
+			quote: string;
+		}>;
+	};
+
+	type InlineCharacterSegment = {
+		text: string;
+		record_key: string | null;
 	};
 
 	function buildCharacterAliasSummaries(
@@ -501,8 +535,7 @@
 			return [];
 		}
 
-		const seen = new Set<string>();
-		const summaries: CharacterRelationshipSummary[] = [];
+		const summariesByRelatedName = new Map<string, CharacterRelationshipSummary>();
 
 		for (const relationshipRecord of relationshipRecords) {
 			const pair = parseRelationshipEntityKey(relationshipRecord.entity_key);
@@ -517,6 +550,7 @@
 			const relatedName =
 				relatedRecord?.display_name ??
 				relationshipPairDisplayName(relationshipRecord, record.display_name);
+			const relatedRecordKey = relatedRecord ? characterRecordSelectionKey(relatedRecord) : null;
 
 			for (const field of relationshipRecord.fields) {
 				if (normalizeReadingTitle(field.field_key) !== 'relationship') {
@@ -536,22 +570,28 @@
 						continue;
 					}
 
-					const key = `${normalizeReadingTitle(relatedName)}:${normalizeReadingTitle(label)}`;
-					if (seen.has(key)) {
-						continue;
-					}
-
-					seen.add(key);
-					summaries.push({
+					const relatedKey = normalizeReadingTitle(relatedName);
+					const summary = summariesByRelatedName.get(relatedKey) ?? {
 						related_name: relatedName,
 						label,
-						evidence_quote: firstEvidenceQuote(value)
-					});
+						record_key: relatedRecordKey,
+						evidence: []
+					};
+					if (!summary.record_key && relatedRecordKey) {
+						summary.record_key = relatedRecordKey;
+					}
+					if (relationshipLabelPreferCandidate(summary.label, label)) {
+						summary.label = label;
+					}
+					for (const evidence of relationshipEvidenceQuotes(value)) {
+						pushRelationshipEvidence(summary, evidence);
+					}
+					summariesByRelatedName.set(relatedKey, summary);
 				}
 			}
 		}
 
-		return summaries.sort(
+		return Array.from(summariesByRelatedName.values()).sort(
 			(left, right) =>
 				left.related_name.localeCompare(right.related_name, 'vi-VN') ||
 				left.label.localeCompare(right.label, 'vi-VN')
@@ -584,8 +624,67 @@
 			: parts[0];
 	}
 
-	function firstEvidenceQuote(value: StoryExtractionField['values'][number]) {
-		return value.evidence.find((evidence) => evidence.quote?.trim())?.quote?.trim() ?? null;
+	function relationshipEvidenceQuotes(value: StoryExtractionField['values'][number]) {
+		return value.evidence
+			.filter((evidence) => Boolean(evidence.quote?.trim()))
+			.map((evidence) => ({
+				chapter_num: evidence.chapter_num,
+				quote: evidence.quote?.trim() ?? ''
+			}))
+			.sort(
+				(left, right) =>
+					left.chapter_num - right.chapter_num || left.quote.localeCompare(right.quote, 'vi-VN')
+			);
+	}
+
+	function pushRelationshipEvidence(
+		summary: CharacterRelationshipSummary,
+		evidence: CharacterRelationshipSummary['evidence'][number]
+	) {
+		const key = `${evidence.chapter_num}:${normalizeReadingTitle(evidence.quote)}`;
+		if (
+			!evidence.quote ||
+			summary.evidence.some(
+				(existing) => `${existing.chapter_num}:${normalizeReadingTitle(existing.quote)}` === key
+			)
+		) {
+			return;
+		}
+
+		summary.evidence.push(evidence);
+		summary.evidence.sort(
+			(left, right) =>
+				left.chapter_num - right.chapter_num || left.quote.localeCompare(right.quote, 'vi-VN')
+		);
+	}
+
+	function relationshipEvidenceKey(relationship: CharacterRelationshipSummary) {
+		return `${normalizeReadingTitle(relationship.related_name)}:${normalizeReadingTitle(relationship.label)}`;
+	}
+
+	function relationshipEvidenceIsOpen(relationship: CharacterRelationshipSummary) {
+		return Boolean(openRelationshipEvidenceKeys[relationshipEvidenceKey(relationship)]);
+	}
+
+	function toggleRelationshipEvidence(relationship: CharacterRelationshipSummary) {
+		const key = relationshipEvidenceKey(relationship);
+		openRelationshipEvidenceKeys = {
+			...openRelationshipEvidenceKeys,
+			[key]: !openRelationshipEvidenceKeys[key]
+		};
+	}
+
+	function relationshipLabelPreferCandidate(current: string, candidate: string) {
+		return relationshipLabelSpecificity(candidate) > relationshipLabelSpecificity(current);
+	}
+
+	function relationshipLabelSpecificity(value: string) {
+		const tokens = normalizeReadingTitle(value)
+			.replace(/[^\p{L}\p{N}]+/gu, '_')
+			.split('_')
+			.filter(Boolean);
+		const charCount = tokens.join('').length;
+		return tokens.length * 1000 + charCount;
 	}
 
 	function characterAliasDisplayLabel(fieldKey: string, fieldLabel: string) {
@@ -707,6 +806,12 @@
 		selectedCharacterRecordKey = alias.record_key;
 	}
 
+	function openCharacterSelectionKey(recordKey: string | null | undefined) {
+		if (recordKey) {
+			selectedCharacterRecordKey = recordKey;
+		}
+	}
+
 	function characterRelationshipMeta(value: {
 		related_character: string | null;
 		relationship_label: string | null;
@@ -716,6 +821,135 @@
 		}
 
 		return `${value.relationship_label}: ${value.related_character}`;
+	}
+
+	function buildInlineCharacterSegments(
+		text: string,
+		records: StoryExtractionRecord[],
+		aliases: StoryCharacterAlias[]
+	): InlineCharacterSegment[] {
+		const sourceText = text ?? '';
+		if (!sourceText.trim()) {
+			return [{ text: sourceText, record_key: null }];
+		}
+
+		const surfaces = buildInlineCharacterSurfaces(records, aliases);
+		const matches: Array<{ start: number; end: number; text: string; record_key: string }> = [];
+		const seen = new Set<string>();
+		for (const surface of surfaces) {
+			for (const occurrence of findReadingSurfaceOccurrences(sourceText, surface.text)) {
+				const key = `${occurrence.start_char}:${occurrence.end_char}:${surface.record_key}`;
+				if (seen.has(key)) {
+					continue;
+				}
+				seen.add(key);
+				matches.push({
+					start: occurrence.start_char,
+					end: occurrence.end_char,
+					text: occurrence.text,
+					record_key: surface.record_key
+				});
+			}
+		}
+
+		matches.sort(
+			(left, right) =>
+				left.start - right.start ||
+				right.end - right.start - (left.end - left.start) ||
+				left.text.localeCompare(right.text, 'vi-VN')
+		);
+		const selectedMatches: typeof matches = [];
+		for (const match of matches) {
+			if (!selectedMatches.some((selected) => match.start < selected.end && match.end > selected.start)) {
+				selectedMatches.push(match);
+			}
+		}
+		selectedMatches.sort((left, right) => left.start - right.start);
+
+		const segments: InlineCharacterSegment[] = [];
+		let cursor = 0;
+		for (const match of selectedMatches) {
+			if (match.start > cursor) {
+				segments.push({
+					text: sourceText.slice(cursor, match.start),
+					record_key: null
+				});
+			}
+			segments.push({
+				text: sourceText.slice(match.start, match.end),
+				record_key: match.record_key
+			});
+			cursor = match.end;
+		}
+		if (cursor < sourceText.length) {
+			segments.push({
+				text: sourceText.slice(cursor),
+				record_key: null
+			});
+		}
+
+		return segments.length > 0 ? segments : [{ text: sourceText, record_key: null }];
+	}
+
+	function buildInlineCharacterSurfaces(
+		records: StoryExtractionRecord[],
+		aliases: StoryCharacterAlias[]
+	) {
+		const recordByIdentity = new Map<string, StoryExtractionRecord>();
+		for (const record of records) {
+			const identityKey = characterRecordIdentityKey(record);
+			const existing = recordByIdentity.get(identityKey);
+			if (!existing || record.chapter_num >= existing.chapter_num) {
+				recordByIdentity.set(identityKey, record);
+			}
+		}
+
+		const surfaces: Array<{ text: string; record_key: string }> = [];
+		const seen = new Set<string>();
+		for (const record of recordByIdentity.values()) {
+			pushInlineCharacterSurface(
+				surfaces,
+				seen,
+				record.display_name,
+				characterRecordSelectionKey(record)
+			);
+		}
+		for (const alias of aliases) {
+			if (!isStableReadingAliasSurface(alias.alias_text)) {
+				continue;
+			}
+			const record = recordByIdentity.get(characterAliasIdentityKey(alias));
+			if (!record) {
+				continue;
+			}
+			pushInlineCharacterSurface(
+				surfaces,
+				seen,
+				alias.alias_text,
+				characterRecordSelectionKey(record)
+			);
+		}
+
+		return surfaces.sort(
+			(left, right) =>
+				Array.from(right.text).length - Array.from(left.text).length ||
+				left.text.localeCompare(right.text, 'vi-VN')
+		);
+	}
+
+	function pushInlineCharacterSurface(
+		surfaces: Array<{ text: string; record_key: string }>,
+		seen: Set<string>,
+		text: string,
+		recordKey: string
+	) {
+		const surface = text.replace(/\s+/g, ' ').trim();
+		const key = `${normalizeReadingTitle(surface)}:${recordKey}`;
+		if (!surface || seen.has(key)) {
+			return;
+		}
+		seen.add(key);
+		surfaces.push({ text: surface, record_key: recordKey });
 	}
 
 	function buildHighlightMentions(
@@ -1084,7 +1318,7 @@
 												<button
 													class="reading-highlight"
 													onclick={() => {
-														selectedCharacterRecordKey = segment.record_key;
+														openCharacterSelectionKey(segment.record_key);
 													}}
 													type="button"
 												>
@@ -1114,7 +1348,7 @@
 										characterRecordSelectionKey(record)}
 									class="info-card character-card-button"
 									onclick={() => {
-										selectedCharacterRecordKey = characterRecordSelectionKey(record);
+										openCharacterSelectionKey(characterRecordSelectionKey(record));
 									}}
 									type="button"
 								>
@@ -1189,7 +1423,21 @@
 													<div class="field-row__values">
 														{#each field.values as value (value.id)}
 															<div class="character-field-value">
-																<div>{value.value}</div>
+																<div>
+																	{#each buildInlineCharacterSegments(value.value, visibleCharacterRecords, visibleCharacterAliases) as segment, segmentIndex (`${value.id}:value:${segmentIndex}`)}
+																		{#if segment.record_key}
+																			<button
+																				class="inline-character-link"
+																				onclick={() => openCharacterSelectionKey(segment.record_key)}
+																				type="button"
+																			>
+																				{segment.text}
+																			</button>
+																		{:else}
+																			{segment.text}
+																		{/if}
+																	{/each}
+																</div>
 																{#if characterRelationshipMeta(value)}
 																	<div class="nav-link__meta">
 																		{characterRelationshipMeta(value)}
@@ -1200,7 +1448,19 @@
 																		{#each value.evidence as evidence, evidenceIndex (`${value.id}:${evidenceIndex}`)}
 																			{#if evidence.quote}
 																				<div class="nav-link__meta">
-																					"{evidence.quote}"
+																					"{#each buildInlineCharacterSegments(evidence.quote, visibleCharacterRecords, visibleCharacterAliases) as segment, segmentIndex (`${value.id}:evidence:${evidenceIndex}:${segmentIndex}`)}
+																						{#if segment.record_key}
+																							<button
+																								class="inline-character-link"
+																								onclick={() => openCharacterSelectionKey(segment.record_key)}
+																								type="button"
+																							>
+																								{segment.text}
+																							</button>
+																						{:else}
+																							{segment.text}
+																						{/if}
+																					{/each}"
 																				</div>
 																			{/if}
 																		{/each}
@@ -1218,26 +1478,73 @@
 								{#if selectedCharacterRelationships.length > 0}
 									<div class="character-detail-section">
 										<div class="field-stack">
-											{#each selectedCharacterRelationships as relationship (`${relationship.related_name}:${relationship.label}`)}
-												<div class="info-card">
-													<div class="status-row">
-														<div>
-															<div class="nav-link__title">Quan hệ</div>
-														</div>
-													</div>
-													<div class="field-row__values">
-														<div class="character-field-value">
-															<div>{relationship.related_name}</div>
-															<div class="nav-link__meta">{relationship.label}</div>
-															{#if relationship.evidence_quote}
-																<div class="evidence-stack">
-																	<div class="nav-link__meta">"{relationship.evidence_quote}"</div>
-																</div>
-															{/if}
+											<div class="info-card">
+												<div class="status-row">
+													<div>
+														<div class="nav-link__title">
+															{readingCharacterCopy.relationshipsTitle}
 														</div>
 													</div>
 												</div>
-											{/each}
+												<div class="field-row__values relationship-list">
+													{#each selectedCharacterRelationships as relationship (relationship.related_name)}
+														<div class="character-field-value relationship-row">
+															<div class="relationship-row-main">
+																<div class="relationship-summary-line">
+																	{#if relationship.record_key}
+																		<button
+																			class="inline-character-link"
+																			onclick={() => openCharacterSelectionKey(relationship.record_key)}
+																			type="button"
+																		>
+																			{relationship.related_name}
+																		</button>
+																	{:else}
+																		<span>{relationship.related_name}</span>
+																	{/if}
+																	<span class="nav-link__meta">- {relationship.label}</span>
+																</div>
+																{#if relationship.evidence.length > 0}
+																	<button
+																		aria-expanded={relationshipEvidenceIsOpen(relationship)}
+																		class="relationship-evidence-toggle nav-link__meta"
+																		onclick={() => toggleRelationshipEvidence(relationship)}
+																		type="button"
+																	>
+																		{#if relationshipEvidenceIsOpen(relationship)}
+																			<ChevronDown size={13} strokeWidth={1.9} />
+																		{:else}
+																			<ChevronRight size={13} strokeWidth={1.9} />
+																		{/if}
+																		<span>{readingCharacterCopy.evidenceSummary}</span>
+																	</button>
+																{/if}
+															</div>
+															{#if relationship.evidence.length > 0 && relationshipEvidenceIsOpen(relationship)}
+																<div class="relationship-evidence-panel evidence-stack">
+																	{#each relationship.evidence as evidence (`${evidence.chapter_num}:${evidence.quote}`)}
+																		<div class="nav-link__meta">
+																			ch.{evidence.chapter_num} "{#each buildInlineCharacterSegments(evidence.quote, visibleCharacterRecords, visibleCharacterAliases) as segment, segmentIndex (`${evidence.chapter_num}:${evidence.quote}:${segmentIndex}`)}
+																				{#if segment.record_key}
+																					<button
+																						class="inline-character-link"
+																						onclick={() => openCharacterSelectionKey(segment.record_key)}
+																						type="button"
+																					>
+																						{segment.text}
+																					</button>
+																				{:else}
+																					{segment.text}
+																				{/if}
+																			{/each}"
+																		</div>
+																	{/each}
+																</div>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											</div>
 										</div>
 									</div>
 								{/if}

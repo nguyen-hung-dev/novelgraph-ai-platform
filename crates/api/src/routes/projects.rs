@@ -6,8 +6,7 @@ use axum::{
     Json, Router,
 };
 use novelgraph_core::{
-    AnalysisChapterState, CreateProjectInput, DeleteProjectInput, DeleteProjectResult, Project,
-    ProjectWorkspaceSnapshot,
+    CreateProjectInput, DeleteProjectInput, DeleteProjectResult, Project, ProjectWorkspaceSnapshot,
 };
 
 use crate::{publish_project_event, ApiError, AppState};
@@ -141,24 +140,7 @@ async fn get_project_workspace(
                 .iter()
                 .map(|chapter| {
                     let run = run_by_chapter.get(chapter.id.as_str()).copied();
-
-                    AnalysisChapterState {
-                        chapter_id: chapter.id.clone(),
-                        chapter_num: chapter.chapter_num,
-                        title: chapter.title.clone(),
-                        status: run
-                            .map(|run| run.status.clone())
-                            .unwrap_or_else(|| "pending".to_string()),
-                        run_id: run.map(|run| run.id.clone()),
-                        attempt: run.map(|run| run.attempt),
-                        prompt_schema_version: run
-                            .and_then(|run| run.prompt_schema_version.clone()),
-                        error_code: run.and_then(|run| run.error_code.clone()),
-                        error_message: run.and_then(|run| run.error_message.clone()),
-                        started_at: run.and_then(|run| run.started_at.clone()),
-                        finished_at: run.and_then(|run| run.finished_at.clone()),
-                        updated_at: run.map(|run| run.updated_at.clone()),
-                    }
+                    crate::services::analysis::chapter_state_from_run(chapter, run)
                 })
                 .collect()
         }

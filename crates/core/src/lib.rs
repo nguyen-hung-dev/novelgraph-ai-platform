@@ -1,24 +1,31 @@
+pub mod cloud_extraction;
 pub mod config;
 pub mod domain;
 pub mod error;
 pub mod extraction;
 pub mod import;
+pub mod prompt_registry;
 pub mod version;
 
+pub use cloud_extraction::{
+    build_story_chapter_cloud_extraction_prompt, build_structured_json_repair_prompt,
+    CloudChapterExtractionInput, CloudChapterExtractionPrompt, StructuredJsonRepairPrompt,
+    CLOUD_CHAPTER_EXTRACTION_SCHEMA_VERSION, CLOUD_GEMINI_ONE_SHOT_CALL_PROFILE,
+};
 pub use config::{AppConfig, AppMode};
 pub use domain::{
-    ActivateManagedLocalModelInput, AnalysisChapterRun, AnalysisChapterState, AnalysisJob,
-    AnalysisRunSnapshot, AnalysisRunStepInput, ByokProviderConfigRecord, ByokProviderConfigView,
-    ByokProviderKeyHealth, ByokProviderPreset, Chapter, ChapterPreview, CheckByokProviderKeyInput,
-    CreateProjectInput, CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult,
-    ImportPreview, JobEvent, LocalLlmDownloadState, LocalLlmModelSelection, LocalLlmPreset,
-    LocalLlmRuntimeSnapshot, Novel, NovelImportInput, NovelImportResult, NovelMetadataSuggestion,
-    NovelMetadataSuggestionInput, NovelMetadataUpdateInput, Project, ProjectWorkspaceSnapshot,
-    SaveByokProviderConfigInput, SaveByokProviderConfigResult, SourceSegment,
-    StoryCharacterAliasView, StoryCharacterMention, StoryEvidenceSpan, StoryExtractionDocument,
-    StoryExtractionFieldPayload, StoryExtractionFieldValuePayload, StoryExtractionFieldValueView,
-    StoryExtractionFieldView, StoryExtractionRecordPayload, StoryExtractionRecordView,
-    TranslationJob,
+    ActivateManagedLocalModelInput, AnalysisChapterRun, AnalysisChapterState,
+    AnalysisExecutionProfile, AnalysisJob, AnalysisRunSnapshot, AnalysisRunStepInput,
+    ByokProviderConfigRecord, ByokProviderConfigView, ByokProviderKeyHealth, ByokProviderPreset,
+    Chapter, ChapterPreview, CheckByokProviderKeyInput, CreateProjectInput,
+    CreateTranslationJobInput, DeleteProjectInput, DeleteProjectResult, ImportPreview, JobEvent,
+    LocalLlmDownloadState, LocalLlmModelSelection, LocalLlmPreset, LocalLlmRuntimeSnapshot, Novel,
+    NovelImportInput, NovelImportResult, NovelMetadataSuggestion, NovelMetadataSuggestionInput,
+    NovelMetadataUpdateInput, Project, ProjectWorkspaceSnapshot, SaveByokProviderConfigInput,
+    SaveByokProviderConfigResult, SourceSegment, StoryCharacterAliasView, StoryCharacterMention,
+    StoryEvidenceSpan, StoryExtractionDocument, StoryExtractionFieldPayload,
+    StoryExtractionFieldValuePayload, StoryExtractionFieldValueView, StoryExtractionFieldView,
+    StoryExtractionRecordPayload, StoryExtractionRecordView, TranslationJob,
 };
 pub use error::{AppError, AppResult};
 pub use extraction::{

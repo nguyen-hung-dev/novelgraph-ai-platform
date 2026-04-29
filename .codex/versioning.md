@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- App version: `0.12.0`
+- App version: `0.13.0`
 - API version: `v0`
 - Release channel: `foundation`
 - Storage schema version: `2026-04-29.foundation.v9`

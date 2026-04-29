@@ -62,6 +62,8 @@ Checklist này theo dõi tiến độ cấp cao cho toàn bộ dự án.
 - [ ] Chốt stale marker model cho dữ liệu phụ thuộc sau khi user sửa trực tiếp.
 - [x] Chốt job event model.
 - [ ] Chốt regression fixture strategy.
+- [ ] Chốt nhánh Gemini cloud one-shot theo `docs/checklists/12-llm-cloud-gemini-checklist.md`.
+- [ ] Chốt world model bootstrap và dynamic taxonomy theo `docs/checklists/13-world-model-bootstrap-checklist.md`.
 
 ## Tầng 5 - MVP UI
 

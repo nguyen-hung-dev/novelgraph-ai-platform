@@ -41,6 +41,8 @@ pub struct AppConfig {
     pub llama_cpp_default_model: String,
     pub llama_cpp_server_bin: String,
     pub llama_cpp_timeout_secs: u64,
+    pub gemini_base_url: String,
+    pub gemini_timeout_secs: u64,
     pub secrets_encryption_key: Option<String>,
     pub secrets_key_path: PathBuf,
 }
@@ -76,6 +78,12 @@ impl AppConfig {
             .map_err(|err| {
                 AppError::InvalidConfig(format!("invalid LLAMA_CPP_TIMEOUT_SECS: {err}"))
             })?;
+        let gemini_timeout_secs = env::var("GEMINI_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "120".to_string())
+            .parse::<u64>()
+            .map_err(|err| {
+                AppError::InvalidConfig(format!("invalid GEMINI_TIMEOUT_SECS: {err}"))
+            })?;
 
         Ok(Self {
             mode,
@@ -90,6 +98,9 @@ impl AppConfig {
             llama_cpp_server_bin: env::var("LLAMA_CPP_SERVER_BIN")
                 .unwrap_or_else(|_| default_llama_cpp_server_bin()),
             llama_cpp_timeout_secs,
+            gemini_base_url: env::var("GEMINI_BASE_URL")
+                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta".to_string()),
+            gemini_timeout_secs,
             secrets_encryption_key: env::var("SECRETS_ENCRYPTION_KEY")
                 .ok()
                 .map(|value| value.trim().to_string())

@@ -5,6 +5,7 @@ use novelgraph_core::{
     AnalysisRunStepInput, Chapter,
 };
 use novelgraph_storage::SqliteStore;
+use serde::Deserialize;
 
 use crate::{publish_project_event, ApiError, AppState};
 
@@ -120,23 +121,7 @@ pub(crate) async fn build_run_snapshot(
         .iter()
         .map(|chapter| {
             let run = run_by_chapter.get(chapter.id.as_str()).copied();
-
-            AnalysisChapterState {
-                chapter_id: chapter.id.clone(),
-                chapter_num: chapter.chapter_num,
-                title: chapter.title.clone(),
-                status: run
-                    .map(|run| run.status.clone())
-                    .unwrap_or_else(|| "pending".to_string()),
-                run_id: run.map(|run| run.id.clone()),
-                attempt: run.map(|run| run.attempt),
-                prompt_schema_version: run.and_then(|run| run.prompt_schema_version.clone()),
-                error_code: run.and_then(|run| run.error_code.clone()),
-                error_message: run.and_then(|run| run.error_message.clone()),
-                started_at: run.and_then(|run| run.started_at.clone()),
-                finished_at: run.and_then(|run| run.finished_at.clone()),
-                updated_at: run.map(|run| run.updated_at.clone()),
-            }
+            chapter_state_from_run(chapter, run)
         })
         .collect::<Vec<_>>();
 
@@ -182,6 +167,109 @@ pub(crate) async fn build_run_snapshot(
         character_records,
         relationship_records,
     })
+}
+
+pub(crate) fn chapter_state_from_run(
+    chapter: &Chapter,
+    run: Option<&AnalysisChapterRun>,
+) -> AnalysisChapterState {
+    let telemetry = run.and_then(chapter_output_telemetry);
+
+    AnalysisChapterState {
+        chapter_id: chapter.id.clone(),
+        chapter_num: chapter.chapter_num,
+        title: chapter.title.clone(),
+        status: run
+            .map(|run| run.status.clone())
+            .unwrap_or_else(|| "pending".to_string()),
+        run_id: run.map(|run| run.id.clone()),
+        attempt: run.map(|run| run.attempt),
+        prompt_schema_version: run.and_then(|run| run.prompt_schema_version.clone()),
+        error_code: run.and_then(|run| run.error_code.clone()),
+        error_message: run.and_then(|run| run.error_message.clone()),
+        started_at: run.and_then(|run| run.started_at.clone()),
+        finished_at: run.and_then(|run| run.finished_at.clone()),
+        updated_at: run.map(|run| run.updated_at.clone()),
+        execution_profile: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.execution_profile.clone()),
+        call_status: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.call_status.clone()),
+        api_call_count: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.api_call_count),
+        provider: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.provider.clone()),
+        model: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.model.clone()),
+        input_tokens: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.input_tokens),
+        output_tokens: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.output_tokens),
+        estimated_cost: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.estimated_cost),
+        trace_id: telemetry
+            .as_ref()
+            .and_then(|telemetry| telemetry.trace_id.clone()),
+    }
+}
+
+fn chapter_output_telemetry(run: &AnalysisChapterRun) -> Option<ChapterOutputTelemetry> {
+    let output_json = run.output_json.as_deref()?.trim();
+    if output_json.is_empty() {
+        return None;
+    }
+    let payload = serde_json::from_str::<ChapterOutputTelemetryPayload>(output_json).ok()?;
+
+    let call = payload.call_summary.unwrap_or_default();
+    Some(ChapterOutputTelemetry {
+        execution_profile: payload.execution_profile,
+        call_status: call.status,
+        api_call_count: call.api_call_count,
+        provider: call.provider,
+        model: call.model,
+        input_tokens: call.input_tokens,
+        output_tokens: call.output_tokens,
+        estimated_cost: call.estimated_cost,
+        trace_id: call.trace_id,
+    })
+}
+
+#[derive(Debug, Clone)]
+struct ChapterOutputTelemetry {
+    execution_profile: Option<String>,
+    call_status: Option<String>,
+    api_call_count: Option<i64>,
+    provider: Option<String>,
+    model: Option<String>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    estimated_cost: Option<f64>,
+    trace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ChapterOutputTelemetryPayload {
+    execution_profile: Option<String>,
+    call_summary: Option<ChapterOutputTelemetryCall>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ChapterOutputTelemetryCall {
+    status: Option<String>,
+    api_call_count: Option<i64>,
+    provider: Option<String>,
+    model: Option<String>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    estimated_cost: Option<f64>,
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

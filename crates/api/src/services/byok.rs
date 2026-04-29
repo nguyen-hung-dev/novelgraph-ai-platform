@@ -15,8 +15,18 @@ use ring::{
 use crate::{ApiError, AppState};
 
 const GEMINI_OPENAI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+const GEMINI_DIRECT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL: &str = "gemini-2.5-flash";
 const SECRET_CIPHERTEXT_PREFIX: &str = "ngenc:v1";
+
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeByokProviderConfig {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_format: String,
+    pub api_key: String,
+}
 
 pub(crate) fn provider_presets() -> Vec<ByokProviderPreset> {
     vec![
@@ -164,6 +174,55 @@ pub(crate) async fn check_key(
     Ok(health)
 }
 
+pub(crate) async fn load_runtime_provider_config(
+    state: &AppState,
+    provider: &str,
+) -> Result<RuntimeByokProviderConfig, ApiError> {
+    let provider = normalized_provider(provider)?;
+    let record = state
+        .store
+        .get_local_byok_provider_config_for_provider(&provider)
+        .await?
+        .ok_or_else(|| {
+            ApiError::bad_request(format!("BYOK provider `{provider}` is not configured"))
+        })?;
+
+    let encrypted_secret_ref = record.encrypted_secret_ref.as_deref().ok_or_else(|| {
+        ApiError::bad_request(format!("BYOK provider `{provider}` does not have API key"))
+    })?;
+    let api_key = open_secret(&state.config, encrypted_secret_ref)?;
+    let model = record
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(GEMINI_DEFAULT_MODEL)
+        .to_string();
+    let base_url = record
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(if provider == "gemini" {
+            GEMINI_OPENAI_BASE_URL
+        } else {
+            "https://api.example.com/v1"
+        });
+    let base_url = if provider == "gemini" {
+        to_gemini_direct_base_url(base_url)
+    } else {
+        normalized_url(base_url)?
+    };
+
+    Ok(RuntimeByokProviderConfig {
+        provider,
+        base_url,
+        model,
+        api_format: record.api_format,
+        api_key,
+    })
+}
+
 fn provider_preset(provider: &str) -> Option<ByokProviderPreset> {
     provider_presets()
         .into_iter()
@@ -194,6 +253,19 @@ fn normalized_url(value: &str) -> Result<String, ApiError> {
             "base_url must start with http:// or https://",
         ))
     }
+}
+
+fn to_gemini_direct_base_url(value: &str) -> String {
+    let normalized = value.trim().trim_end_matches('/').to_string();
+    if normalized.is_empty() {
+        return GEMINI_DIRECT_BASE_URL.to_string();
+    }
+
+    if normalized.ends_with("/openai") {
+        return normalized.trim_end_matches("/openai").to_string();
+    }
+
+    normalized
 }
 
 fn require_text(value: &str, field: &str) -> Result<String, ApiError> {

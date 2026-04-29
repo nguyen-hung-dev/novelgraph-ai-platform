@@ -1,5 +1,5 @@
 use anyhow::Context;
-use novelgraph_ai::{LlamaCppClient, LlamaCppConfig};
+use novelgraph_ai::{GeminiProvider, GeminiProviderConfig, LlamaCppClient, LlamaCppConfig};
 use novelgraph_api::build_router;
 use novelgraph_core::AppConfig;
 use novelgraph_storage::SqliteStore;
@@ -31,9 +31,13 @@ async fn main() -> anyhow::Result<()> {
         default_model: config.llama_cpp_default_model.clone(),
         timeout_secs: config.llama_cpp_timeout_secs,
     })?;
+    let gemini = GeminiProvider::new(GeminiProviderConfig {
+        base_url: config.gemini_base_url.clone(),
+        timeout_secs: config.gemini_timeout_secs,
+    })?;
     let local_runtime = novelgraph_api::local_runtime::LocalLlmRuntimeManager::new(&config).await?;
     let bind_addr = config.bind_addr();
-    let router = build_router(config, store, local_llm, local_runtime);
+    let router = build_router(config, store, local_llm, gemini, local_runtime);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("failed to bind {bind_addr}"))?;

@@ -190,7 +190,12 @@ export async function stepAnalysisRun(
 	fetchFn: FetchLike,
 	projectId: string,
 	jobId: string,
-	input: { force?: boolean; from_chapter_num?: number; to_chapter_num?: number } = {}
+	input: {
+		force?: boolean;
+		from_chapter_num?: number;
+		to_chapter_num?: number;
+		execution_profile?: 'local_small_staged' | 'cloud_gemini_one_shot';
+	} = {}
 ) {
 	return requestJson<AnalysisRunSnapshot>(
 		fetchFn,
@@ -200,7 +205,8 @@ export async function stepAnalysisRun(
 			body: JSON.stringify({
 				force: Boolean(input.force),
 				from_chapter_num: input.from_chapter_num,
-				to_chapter_num: input.to_chapter_num
+				to_chapter_num: input.to_chapter_num,
+				execution_profile: input.execution_profile
 			})
 		}
 	);

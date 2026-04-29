@@ -6,7 +6,29 @@ This project follows semantic versioning while it is still pre-1.0.0. Version `0
 
 ## Unreleased
 
-No unreleased changes yet.
+## [0.13.0] - 2026-04-30
+
+### Added
+
+- Added a cloud analysis execution profile `cloud_gemini_one_shot` that runs chapter extraction through direct Gemini structured output while keeping the existing local llama.cpp staged profile intact.
+- Added provider abstraction in `crates/ai` with dedicated Gemini, OpenAI-compatible, and llama.cpp provider modules, including shared capability contracts and provider-safe error redaction tests.
+- Added cloud one-shot extraction schema/prompt registry in `crates/core` (`story_chapter_cloud_extraction.v2`) and backend mapping from evidence quotes to chapter offsets before persistence.
+- Added BYOK runtime resolution for Gemini API keys in backend services so analysis jobs use encrypted server-side keys and do not expose secrets in prompts or logs.
+- Added per-chapter LLM telemetry (`execution_profile`, call status/count, provider/model, tokens, estimated cost, trace id) surfaced in analysis snapshots and project workspace chapter state.
+- Added analysis UI profile selection (local staged vs Gemini cloud one-shot) and latest chapter telemetry display on the Analysis runner screen.
+- Added semantic extraction audit documentation and a world-model bootstrap checklist for dynamic taxonomy planning.
+
+### Changed
+
+- Tightened the Gemini cloud prompt/schema so the main arrays persist only stable characters, MVP appearance fields, and stable relationship scopes; uncertain identity, alias, field, and event-like items are pushed to review/suspect handling.
+- Tightened Gemini cloud relationship handling so prior chapter relationship hints are sent only when both endpoints appear in the current chapter, duplicate relation labels merge their evidence, and Reading relationship cards show one related-character card with chapter-tagged evidence from the current or earlier chapters only.
+- Tightened Gemini cloud appearance prompting so field values are compact display labels while raw source wording stays in evidence quotes.
+- Added a conservative cloud write gate for near-alias/typo character records so low-signal alias-like nodes can merge into an existing canonical record only when they match a known alias surface.
+- Removed the language-specific temporary-state keyword heuristic from the Gemini cloud write gate; field persistence now depends on structured `semantic_class`, evidence mapping, and review/suspect handling instead of Vietnamese word matching.
+- Moved the new Analysis runner profile/telemetry copy into a small frontend copy catalog instead of keeping long UI strings in the Svelte feature component.
+- Improved the Reading info panel so related characters, aliases, and inline evidence surfaces can open the matching entity detail card, while relationship evidence opens in a compact full-width disclosure row.
+- Updated app version metadata to `0.13.0`.
+- Kept storage schema version at `2026-04-29.foundation.v9` because this release does not add database migrations.
 
 ## [0.12.0] - 2026-04-29
 

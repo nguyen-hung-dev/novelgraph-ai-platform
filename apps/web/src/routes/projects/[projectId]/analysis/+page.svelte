@@ -8,6 +8,17 @@
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { connectProjectRealtime } from '$lib/api/realtime';
 	import type { AnalysisRunSnapshot } from '$lib/api/types';
+	import {
+		ANALYSIS_COPY,
+		ANALYSIS_PROFILE_OPTIONS,
+		analysisChapterStatesDetail,
+		analysisForceRerunConfirm,
+		analysisLostConnectionNote,
+		analysisRequestFailedMessage,
+		analysisRunStartedNote,
+		type AnalysisExecutionProfile,
+		type ChapterRunRange
+	} from '$lib/workspace/analysisCopy';
 	import { formatTimestamp, jobStatusTone } from '$lib/workspace/presenters';
 	import type { ActionData, PageData } from './$types';
 
@@ -41,10 +52,7 @@
 		jobId: string;
 	};
 
-	type ChapterRunRange = {
-		from_chapter_num: number;
-		to_chapter_num: number;
-	};
+	let executionProfile = $state<AnalysisExecutionProfile>('local_small_staged');
 
 	$effect(() => {
 		if (runnerState !== 'running') {
@@ -103,6 +111,11 @@
 	const cancelJobOk = $derived(
 		Boolean(form?.cancelJob && 'ok' in form.cancelJob && form.cancelJob.ok)
 	);
+	const latestTelemetryChapter = $derived(
+		[...(currentRun?.chapters ?? [])]
+			.reverse()
+			.find((chapter) => chapter.api_call_count != null || chapter.provider != null)
+	);
 
 	function metricToneForJobStatus(status: string) {
 		if (status === 'completed') return 'accent';
@@ -118,7 +131,7 @@
 
 	function buildRunContext(): RunRequestContext {
 		if (!latestJob) {
-			throw new Error('Chưa có analysis job để chạy.');
+			throw new Error(ANALYSIS_COPY.errors.missingJob);
 		}
 
 		return {
@@ -132,15 +145,15 @@
 		const to = Number.parseInt(runToChapter, 10);
 
 		if (!Number.isInteger(from) || !Number.isInteger(to)) {
-			throw new Error('Khoảng chương phải là số nguyên.');
+			throw new Error(ANALYSIS_COPY.errors.invalidRangeInteger);
 		}
 
 		if (from < 1 || to < 1) {
-			throw new Error('Khoảng chương phải bắt đầu từ 1 trở lên.');
+			throw new Error(ANALYSIS_COPY.errors.invalidRangeStart);
 		}
 
 		if (to < from) {
-			throw new Error('Chương kết thúc phải lớn hơn hoặc bằng chương bắt đầu.');
+			throw new Error(ANALYSIS_COPY.errors.invalidRangeOrder);
 		}
 
 		return {
@@ -149,27 +162,27 @@
 		};
 	}
 
-	function rangeLabel(range: ChapterRunRange) {
-		return range.from_chapter_num === range.to_chapter_num
-			? `chương ${range.from_chapter_num}`
-			: `chương ${range.from_chapter_num} -> ${range.to_chapter_num}`;
-	}
-
 	async function requestRun(
 		context: RunRequestContext,
 		action: 'pause' | 'reset' | 'step',
 		force = false,
-		range?: ChapterRunRange
+		range?: ChapterRunRange,
+		profile?: AnalysisExecutionProfile
 	) {
 		const response = await fetch(context.endpoint, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ action, force, ...range })
+			body: JSON.stringify({
+				action,
+				force,
+				...range,
+				execution_profile: profile
+			})
 		});
 
 		if (!response.ok) {
 			const text = await response.text();
-			throw new Error(text || `Analysis request failed with HTTP ${response.status}`);
+			throw new Error(text || analysisRequestFailedMessage(response.status));
 		}
 
 		return (await response.json()) as AnalysisRunSnapshot;
@@ -185,21 +198,26 @@
 		try {
 			range = buildRunRange();
 		} catch (error) {
-			runnerNote = error instanceof Error ? error.message : 'Khoảng chương không hợp lệ.';
+			runnerNote =
+				error instanceof Error ? error.message : ANALYSIS_COPY.errors.invalidRangeFallback;
 			return;
 		}
 
 		pauseRequested = false;
 		runnerState = 'running';
-		runnerNote = force
-			? `Đang chạy lại ${rangeLabel(range)} và ghi đè trạng thái chạy cũ trong phạm vi này.`
-			: `Đang chạy ${rangeLabel(range)}, các chương đã completed sẽ được bỏ qua.`;
+		runnerNote = analysisRunStartedNote(force, range, executionProfile);
 
 		let forceNextStep = force;
 
 		while (!pauseRequested) {
 			try {
-				const snapshot = await requestRun(context, 'step', forceNextStep, range);
+				const snapshot = await requestRun(
+					context,
+					'step',
+					forceNextStep,
+					range,
+					executionProfile
+				);
 				forceNextStep = false;
 				runSnapshot = snapshot;
 
@@ -210,14 +228,16 @@
 				if (snapshot.job.status === 'paused') {
 					runnerState = 'paused';
 					runnerNote =
-						snapshot.paused_reason ?? snapshot.job.error_message ?? 'Analysis đã tự tạm dừng.';
+						snapshot.paused_reason ??
+						snapshot.job.error_message ??
+						ANALYSIS_COPY.errors.autoPaused;
 					await invalidateAll();
 					return;
 				}
 
 				if (snapshot.job.status === 'completed' || snapshot.next_chapter_num === null) {
 					runnerState = 'idle';
-					runnerNote = 'Đã chạy xong toàn bộ chương trong job hiện tại.';
+					runnerNote = ANALYSIS_COPY.notes.jobCompleted;
 					await invalidateAll();
 					return;
 				}
@@ -227,8 +247,8 @@
 				runnerState = 'paused';
 				runnerNote =
 					error instanceof Error
-						? `Tự tạm dừng vì mất kết nối hoặc request lỗi: ${error.message}`
-						: 'Tự tạm dừng vì mất kết nối backend.';
+						? analysisLostConnectionNote(error.message)
+						: analysisLostConnectionNote();
 				return;
 			}
 		}
@@ -238,20 +258,20 @@
 			(runSnapshot && runSnapshot.next_chapter_num === null)
 		) {
 			runnerState = 'idle';
-			runnerNote = 'Đã chạy xong toàn bộ chương trong job hiện tại.';
+			runnerNote = ANALYSIS_COPY.notes.jobCompleted;
 			await invalidateAll();
 			return;
 		}
 
 		try {
 			runSnapshot = await requestRun(context, 'pause');
-			runnerNote = 'Đã tạm dừng sau chương hiện tại.';
+			runnerNote = ANALYSIS_COPY.notes.pausedAfterChapter;
 			await invalidateAll();
 		} catch (error) {
 			runnerNote =
 				error instanceof Error
-					? `Đã dừng vòng chạy UI, nhưng chưa ghi được trạng thái pause lên backend: ${error.message}`
-					: 'Đã dừng vòng chạy UI, nhưng chưa ghi được trạng thái pause lên backend.';
+					? `${ANALYSIS_COPY.notes.pauseWriteFailed}: ${error.message}`
+					: ANALYSIS_COPY.notes.pauseWriteFailed;
 		} finally {
 			runnerState = 'paused';
 		}
@@ -264,8 +284,7 @@
 
 		pauseRequested = true;
 		runnerState = 'pause_requested';
-		runnerNote =
-			'Đã nhận lệnh Pause. Request AI của chương hiện tại chưa bị cắt ngang; runner sẽ dừng sau khi request này trả về.';
+		runnerNote = ANALYSIS_COPY.notes.pauseQueued;
 	}
 
 	function forceRun() {
@@ -273,15 +292,12 @@
 		try {
 			range = buildRunRange();
 		} catch (error) {
-			runnerNote = error instanceof Error ? error.message : 'Khoảng chương không hợp lệ.';
+			runnerNote =
+				error instanceof Error ? error.message : ANALYSIS_COPY.errors.invalidRangeFallback;
 			return;
 		}
 
-		if (
-			!window.confirm(
-				`Chạy lại ${rangeLabel(range)} sẽ xóa trạng thái chapter run cũ trong phạm vi này.`
-			)
-		) {
+		if (!window.confirm(analysisForceRerunConfirm(range))) {
 			return;
 		}
 
@@ -292,62 +308,62 @@
 <div class="page-stack">
 	<section class="metrics-grid">
 		<MetricCard
-			detail="Chương completed trong analysis job hiện tại"
-			label="Progress"
+			detail={ANALYSIS_COPY.metrics.progress.detail}
+			label={ANALYSIS_COPY.metrics.progress.label}
 			tone="accent"
 			value={`${completedCount}/${totalCount}`}
 		/>
 		<MetricCard
-			detail="Resume sẽ chạy từ chương này và bỏ qua các chương completed"
-			label="Next chapter"
+			detail={ANALYSIS_COPY.metrics.nextChapter.detail}
+			label={ANALYSIS_COPY.metrics.nextChapter.label}
 			tone="teal"
-			value={currentRun?.next_chapter_num ? `#${currentRun.next_chapter_num}` : 'None'}
+			value={currentRun?.next_chapter_num
+				? `#${currentRun.next_chapter_num}`
+				: ANALYSIS_COPY.metrics.nextChapter.none}
 		/>
 		<MetricCard
-			detail={`${pendingCount} pending · ${failedCount} failed`}
-			label="Chapter states"
+			detail={analysisChapterStatesDetail(pendingCount, failedCount)}
+			label={ANALYSIS_COPY.metrics.chapterStates.label}
 			tone={failedCount > 0 ? 'rose' : 'amber'}
 			value={`${progressPercent}%`}
 		/>
 		<MetricCard
-			detail={data.workspace.active_novel?.title ?? 'Import truyện trước'}
-			label="Status"
+			detail={data.workspace.active_novel?.title ?? ANALYSIS_COPY.metrics.status.fallbackDetail}
+			label={ANALYSIS_COPY.metrics.status.label}
 			tone={latestJob ? metricToneForJobStatus(latestJob.status) : 'rose'}
-			value={latestJob?.status ?? 'Idle'}
+			value={latestJob?.status ?? ANALYSIS_COPY.metrics.status.idle}
 		/>
 	</section>
 
 	<section class="page-grid">
-		<Panel
-			subtitle="Điều khiển analysis theo từng chương bằng local llama.cpp"
-			title="Analysis runner"
-		>
+		<Panel subtitle={ANALYSIS_COPY.runner.subtitle} title={ANALYSIS_COPY.runner.title}>
 			{#if latestJob}
 				<div class="detail-list">
 					<div class="status-row">
 						<StatusPill label={latestJob.status} tone={jobStatusTone(latestJob.status)} />
 						<StatusPill label={latestJob.job_type} />
 						<StatusPill
-							label={`UI ${runnerState}`}
+							label={`${ANALYSIS_COPY.runner.uiStatusPrefix} ${runnerState}`}
 							tone={runnerState === 'running' ? 'teal' : 'warning'}
 						/>
 					</div>
 
-					<div class="progress-rail" aria-label="Analysis progress">
+					<div class="progress-rail" aria-label={ANALYSIS_COPY.runner.progressAria}>
 						<span style={`width: ${progressPercent}%`}></span>
 					</div>
 
 					<div class="callout-box">
 						<div class="nav-link__title">{latestJob.id}</div>
 						<div class="nav-link__meta">
-							Created {formatTimestamp(latestJob.created_at)} · Updated
+							{ANALYSIS_COPY.runner.createdLabel}
+							{formatTimestamp(latestJob.created_at)} · {ANALYSIS_COPY.runner.updatedLabel}
 							{formatTimestamp(latestJob.updated_at)}
 						</div>
 					</div>
 
 					{#if runnerNote || currentRun?.paused_reason || latestJob.error_message}
 						<div class="warning-box">
-							<div class="nav-link__title">Runtime note</div>
+							<div class="nav-link__title">{ANALYSIS_COPY.runner.runtimeNoteTitle}</div>
 							<div class="nav-link__meta">
 								{runnerNote ?? currentRun?.paused_reason ?? latestJob.error_message}
 							</div>
@@ -356,20 +372,20 @@
 
 					{#if cancelJobError}
 						<div class="warning-box">
-							<div class="nav-link__title">Cancel job failed</div>
+							<div class="nav-link__title">{ANALYSIS_COPY.runner.cancelFailedTitle}</div>
 							<div class="nav-link__meta">{cancelJobError}</div>
 						</div>
 					{/if}
 					{#if cancelJobOk}
 						<div class="callout-box">
-							<div class="nav-link__title">Cancel request accepted</div>
-							<div class="nav-link__meta">Trang sẽ nạp lại trạng thái mới sau request.</div>
+							<div class="nav-link__title">{ANALYSIS_COPY.runner.cancelAcceptedTitle}</div>
+							<div class="nav-link__meta">{ANALYSIS_COPY.runner.cancelAcceptedMeta}</div>
 						</div>
 					{/if}
 
 					<div class="form-grid">
 						<label class="form-field">
-							<span class="field-label">Từ chương</span>
+							<span class="field-label">{ANALYSIS_COPY.runner.fromChapterLabel}</span>
 							<input
 								bind:value={runFromChapter}
 								disabled={runnerState === 'running' || runnerState === 'pause_requested'}
@@ -379,7 +395,7 @@
 							/>
 						</label>
 						<label class="form-field">
-							<span class="field-label">Đến chương</span>
+							<span class="field-label">{ANALYSIS_COPY.runner.toChapterLabel}</span>
 							<input
 								bind:value={runToChapter}
 								disabled={runnerState === 'running' || runnerState === 'pause_requested'}
@@ -388,47 +404,74 @@
 								type="text"
 							/>
 						</label>
+						<label class="form-field">
+							<span class="field-label">{ANALYSIS_COPY.runner.profileLabel}</span>
+							<select
+								bind:value={executionProfile}
+								disabled={runnerState === 'running' || runnerState === 'pause_requested'}
+							>
+								{#each ANALYSIS_PROFILE_OPTIONS as option}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
+						</label>
 					</div>
 
 					<div class="table-actions">
 						<button class="action-button" disabled={!canRun} onclick={() => void runLoop(false)}>
 							{latestJob.status === 'paused' || runnerState === 'paused'
-								? 'Resume'
-								: 'Start / chạy tiếp'}
+								? ANALYSIS_COPY.runner.resumeButton
+								: ANALYSIS_COPY.runner.startButton}
 						</button>
 						<button class="secondary-button" disabled={!canPause} onclick={() => void pauseRun()}>
-							Pause
+							{ANALYSIS_COPY.runner.pauseButton}
 						</button>
 						<button class="secondary-button" disabled={!canForce} onclick={forceRun}>
-							Force rerun
+							{ANALYSIS_COPY.runner.forceButton}
 						</button>
 						{#if canCancel}
 							<form action="?/cancelJob" method="POST">
 								<input name="job_id" type="hidden" value={latestJob.id} />
 								<button class="secondary-button" disabled={runnerState === 'running'} type="submit">
-									Cancel job
+									{ANALYSIS_COPY.runner.cancelButton}
 								</button>
 							</form>
 						{/if}
-						<a class="toolbar-link" href={resolve('/settings')}>Local model settings</a>
+						<a class="toolbar-link" href={resolve('/settings')}>{ANALYSIS_COPY.runner.settingsLink}</a>
 					</div>
 
-					<div class="callout-box">
-						<div class="nav-link__title">Run policy</div>
-						<div class="nav-link__meta">
-							Nếu Từ chương và Đến chương giống nhau, runner chỉ chạy chương đó. Nếu Đến chương
-							lớn hơn Từ chương, runner chạy lần lượt trong phạm vi đã chọn và bỏ qua chương đã
-							completed. Force rerun chỉ xóa trạng thái chapter run cũ trong phạm vi này. Nếu
-							backend hoặc llama.cpp mất kết nối, UI sẽ tự tạm dừng vòng chạy; nếu lỗi đến từ
-							llama.cpp, backend cũng ghi job về paused.
+					{#if latestTelemetryChapter}
+						<div class="callout-box">
+							<div class="nav-link__title">{ANALYSIS_COPY.telemetry.title}</div>
+							<div class="nav-link__meta">
+								{ANALYSIS_COPY.telemetry.profile}
+								<code>{latestTelemetryChapter.execution_profile ?? ANALYSIS_COPY.telemetry.empty}</code>
+								· {ANALYSIS_COPY.telemetry.status}
+								<code>{latestTelemetryChapter.call_status ?? ANALYSIS_COPY.telemetry.empty}</code>
+								· {ANALYSIS_COPY.telemetry.calls}
+								<code>{latestTelemetryChapter.api_call_count ?? ANALYSIS_COPY.telemetry.empty}</code>
+							</div>
+							<div class="nav-link__meta">
+								{ANALYSIS_COPY.telemetry.provider}
+								<code>{latestTelemetryChapter.provider ?? ANALYSIS_COPY.telemetry.empty}</code> ·
+								{ANALYSIS_COPY.telemetry.model}
+								<code>{latestTelemetryChapter.model ?? ANALYSIS_COPY.telemetry.empty}</code> ·
+								{ANALYSIS_COPY.telemetry.tokens}
+								<code
+									>{latestTelemetryChapter.input_tokens ?? 0}/{latestTelemetryChapter.output_tokens ??
+										0}</code
+								>
+							</div>
 						</div>
+					{/if}
+
+					<div class="callout-box">
+						<div class="nav-link__title">{ANALYSIS_COPY.runPolicy.title}</div>
+						<div class="nav-link__meta">{ANALYSIS_COPY.runPolicy.body}</div>
 					</div>
 				</div>
 			{:else}
-				<div class="empty-note">
-					Chưa có analysis job nào cho project này. Xác nhận import truyện sẽ tạo pending job đầu
-					tiên.
-				</div>
+				<div class="empty-note">{ANALYSIS_COPY.runner.emptyNote}</div>
 			{/if}
 		</Panel>
 	</section>

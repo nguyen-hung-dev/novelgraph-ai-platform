@@ -1,0 +1,154 @@
+{
+  "type": "OBJECT",
+  "required": [
+    "schema_version",
+    "chapter_num",
+    "call_profile",
+    "characters",
+    "relationships",
+    "review_items"
+  ],
+  "properties": {
+    "schema_version": { "type": "STRING" },
+    "chapter_num": { "type": "INTEGER" },
+    "call_profile": {
+      "type": "STRING",
+      "enum": ["cloud_gemini_one_shot"]
+    },
+    "characters": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "required": [
+          "display_name",
+          "aliases",
+          "entity_nature",
+          "fields",
+          "evidence_quotes",
+          "confidence"
+        ],
+        "properties": {
+          "display_name": { "type": "STRING" },
+          "aliases": {
+            "type": "ARRAY",
+            "items": { "type": "STRING" }
+          },
+          "entity_nature": {
+            "type": "STRING",
+            "enum": [
+              "individual_character",
+              "organization",
+              "group",
+              "role_title",
+              "temporary_reference",
+              "uncertain"
+            ]
+          },
+          "fields": {
+            "type": "ARRAY",
+            "items": {
+              "type": "OBJECT",
+              "required": [
+                "field_key",
+                "field_label",
+                "value",
+                "semantic_class",
+                "evidence_quotes",
+                "confidence"
+              ],
+              "properties": {
+                "field_key": {
+                  "type": "STRING",
+                  "enum": ["appearance"]
+                },
+                "field_label": { "type": "STRING" },
+                "value": { "type": "STRING" },
+                "semantic_class": {
+                  "type": "STRING",
+                  "enum": [
+                    "physical_appearance",
+                    "clothing",
+                    "age_or_build",
+                    "appearance"
+                  ]
+                },
+                "evidence_quotes": {
+                  "type": "ARRAY",
+                  "items": { "type": "STRING" }
+                },
+                "confidence": { "type": "NUMBER" }
+              }
+            }
+          },
+          "evidence_quotes": {
+            "type": "ARRAY",
+            "items": { "type": "STRING" }
+          },
+          "confidence": { "type": "NUMBER" }
+        }
+      }
+    },
+    "relationships": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "required": [
+          "source_name",
+          "target_name",
+          "relationship_scope",
+          "relationship_type",
+          "source_to_target_label",
+          "target_to_source_label",
+          "evidence_quotes",
+          "confidence"
+        ],
+        "properties": {
+          "source_name": { "type": "STRING" },
+          "target_name": { "type": "STRING" },
+          "relationship_scope": {
+            "type": "STRING",
+            "enum": [
+              "kinship",
+              "organization_hierarchy",
+              "stable_relationship"
+            ]
+          },
+          "relationship_type": { "type": "STRING" },
+          "source_to_target_label": { "type": "STRING" },
+          "target_to_source_label": { "type": "STRING" },
+          "evidence_quotes": {
+            "type": "ARRAY",
+            "items": { "type": "STRING" }
+          },
+          "confidence": { "type": "NUMBER" }
+        }
+      }
+    },
+    "review_items": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "required": ["item_type", "summary", "reason", "evidence_quotes"],
+        "properties": {
+          "item_type": {
+            "type": "STRING",
+            "enum": [
+              "character",
+              "alias",
+              "field",
+              "relationship",
+              "evidence",
+              "other"
+            ]
+          },
+          "summary": { "type": "STRING" },
+          "reason": { "type": "STRING" },
+          "evidence_quotes": {
+            "type": "ARRAY",
+            "items": { "type": "STRING" }
+          }
+        }
+      }
+    }
+  }
+}

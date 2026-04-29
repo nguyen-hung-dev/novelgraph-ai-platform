@@ -16,6 +16,18 @@ pub enum AiError {
 
     #[error("local LLM returned HTTP {status}: {message}")]
     HttpStatus { status: u16, message: String },
+
+    #[error("provider configuration is invalid: {0}")]
+    ProviderConfig(String),
+
+    #[error("provider request failed: {0}")]
+    ProviderRequest(String),
+
+    #[error("provider returned HTTP {status}: {message}")]
+    ProviderHttpStatus { status: u16, message: String },
+
+    #[error("provider returned invalid structured output: {0}")]
+    StructuredOutput(String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,4 +100,70 @@ pub struct ModelInfo {
     pub id: String,
     pub object: Option<String>,
     pub owned_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderModelCapabilities {
+    pub supports_structured_output: bool,
+    pub max_input_tokens: Option<u32>,
+    pub max_output_tokens: Option<u32>,
+    pub supports_context_caching: bool,
+    pub supports_thinking_config: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderKeyValidation {
+    pub valid: bool,
+    pub status_code: Option<u16>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuredGenerationUsage {
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StructuredGenerationRequest {
+    pub model: String,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    pub response_schema: serde_json::Value,
+    pub temperature: f32,
+    pub max_output_tokens: u32,
+    pub thinking_budget_tokens: Option<u32>,
+    pub trace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuredGenerationResponse {
+    pub provider: String,
+    pub model: String,
+    pub json_text: String,
+    pub usage: StructuredGenerationUsage,
+    pub finish_reason: Option<String>,
+    pub trace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProviderChatRequest {
+    pub model: String,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    pub temperature: f32,
+    pub max_output_tokens: u32,
+    pub thinking_budget_tokens: Option<u32>,
+    pub trace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderChatResponse {
+    pub provider: String,
+    pub model: String,
+    pub content: String,
+    pub usage: StructuredGenerationUsage,
+    pub finish_reason: Option<String>,
+    pub trace_id: Option<String>,
 }
